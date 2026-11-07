@@ -190,7 +190,8 @@ def emit(key, line, side, a, b, st, odd, pts):
     off = seg.offset_curve(side * OFFSET)
     if off.is_empty or off.geom_type != "LineString":
         return
-    nums = sorted({(p[3], p[4], p[2]) for p in pts if a - 1 <= p[0] <= b + 1})
+    # only numbers that really belong to this piece (same colour), so the app never says "n° 294" on red
+    nums = sorted({(p[3], p[4], p[2]) for p in pts if a <= p[0] <= b and int(p[1]) == st})
     f = {"t": st, "n": STREETS[key]["name"], "c": ll_coords(off.simplify(0.8)), "a": [list(x) for x in nums]}
     if odd is not None:
         f["p"] = "impairs" if odd else "pairs"
@@ -199,6 +200,21 @@ def emit(key, line, side, a, b, st, odd, pts):
         unknown_m[STREETS[key]["name"]] += round(b - a)
     else:
         stats[STREETS[key]["name"]][0 if st else 1] += round(b - a)
+
+
+def clean(pts):
+    """Drop house numbers that break the sequence along the street (OSM typos like 2101 or 3110)."""
+    if len(pts) < 3:
+        return pts
+    ns = [p[2] for p in pts]
+    keep = []
+    for k, p in enumerate(pts):
+        nb = ns[max(0, k - 3):k] + ns[k + 1:k + 4]
+        nb.sort()
+        med = nb[len(nb) // 2]
+        if abs(p[2] - med) <= max(60, med * 0.6):
+            keep.append(p)
+    return keep or pts
 
 
 def faces_twin(key, i, line, side):
@@ -234,7 +250,7 @@ for key, lines in cways.items():
                     cr = (q2.x - q1.x) * (p0.y - q1.y) - (q2.y - q1.y) * (p0.x - q1.x)
                     side_odd[1 if cr > 0 else -1] = n0 % 2 == 1
         for side in (1, -1):
-            pts = sorted(per_side.get((key, i, side), []))
+            pts = clean(sorted(per_side.get((key, i, side), [])))
             # parity of this side: its own numbers, else the opposite of the other side
             odd = side_odd.get(side, (not side_odd[-side]) if -side in side_odd else None)
             if not pts and faces_twin(key, i, line, side):

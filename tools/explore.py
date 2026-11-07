@@ -2,7 +2,7 @@
 import re, sys, urllib.request, json
 
 UA = {"User-Agent": "riverain-parking-explore"}
-CAPS = [
+CAPS_ALL = [
     "https://data.parking.brussels/geoserver/ParkingBrussels/ows?service=WFS&request=GetCapabilities",
     "https://geodata.parking.brussels/geoserver/ParkingBrussels/ows?service=WFS&request=GetCapabilities",
     "https://geodata.parking.brussels/geoserver/ows?service=WFS&request=GetCapabilities",
@@ -20,6 +20,7 @@ def get(url, n=None):
         return r.geturl(), b.decode("utf-8", "replace")
 
 
+CAPS = []
 for u in CAPS:
     print("=" * 100, "\n", u)
     try:

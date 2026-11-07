@@ -1,7 +1,7 @@
 name: Explore open data
 on:
   push:
-    paths: ["tools/explore.py", ".github/workflows/explore.yml"]
+    paths: ["tools/explore.py", "tools/explore_args.txt", ".github/workflows/explore.yml"]
   workflow_dispatch:
 jobs:
   explore:

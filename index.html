@@ -9,41 +9,55 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://tile.openstreetmap.org">
+<link rel="preconnect" href="https://photon.komoot.io">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
 :root{
-  --surface:#ffffff; --fg:#111a2c; --muted:#5d6880; --line:#e3e7ef;
-  --zone:#0f9d58;
+  --surface:#ffffff; --fg:#111a2c; --muted:#5d6880; --line:#e3e7ef; --hover:#f1f4f9;
   --ok:#0b7a43; --ok-bg:#e2f5ea; --no:#c0261b; --no-bg:#fde8e6; --warn:#8a5a00; --warn-bg:#fff2d6; --idle-bg:#eef1f6;
   --accent:#1a73e8;
   --font:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
 }
 @media (prefers-color-scheme:dark){:root{
-  --surface:#121a2b; --fg:#eef2f9; --muted:#9ba7bf; --line:#253049;
+  --surface:#121a2b; --fg:#eef2f9; --muted:#9ba7bf; --line:#253049; --hover:#1b2539;
   --ok:#5fd99a; --ok-bg:#103424; --no:#ff8c80; --no-bg:#3d1817; --warn:#f4c766; --warn-bg:#382c10; --idle-bg:#1b2539;
   color-scheme:dark}}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html,body{height:100%;margin:0}
 body{font-family:var(--font);color:var(--fg);background:var(--surface);display:flex;flex-direction:column;overflow:hidden;-webkit-tap-highlight-color:transparent}
+.mapwrap{position:relative;flex:1;min-height:0;display:flex}
 #map{flex:1;min-height:0;background:#dfe4ec}
 .leaflet-container{font-family:var(--font)}
 
-/* zone hint, top-left */
-.hint{position:absolute;z-index:1000;top:calc(env(safe-area-inset-top,0px) + 12px);left:max(12px,env(safe-area-inset-left,0px));
-  background:var(--surface);color:var(--fg);border-radius:999px;padding:7px 12px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;box-shadow:0 1px 6px rgba(0,0,0,.2)}
-.hint i{width:18px;height:5px;border-radius:3px;background:var(--zone)}
-.hint i.r{background:#e53935;height:3px;margin-left:6px}
+/* search, Google-Maps style: one pill at the top, suggestions underneath */
+.top{position:absolute;z-index:1001;top:calc(env(safe-area-inset-top,0px) + 10px);
+  left:max(10px,env(safe-area-inset-left,0px));right:max(10px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:8px}
+.search{display:flex;align-items:center;gap:6px;background:var(--surface);border-radius:28px;box-shadow:0 2px 10px rgba(0,0,0,.22);padding:4px 6px 4px 16px;min-height:52px}
+.search svg{flex:none;width:20px;height:20px;color:var(--muted)}
+.search input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--fg);font:inherit;font-size:17px;padding:10px 4px}
+.search input::placeholder{color:var(--muted)}
+.iconbtn{flex:none;width:44px;height:44px;border:0;border-radius:50%;background:transparent;color:var(--muted);display:grid;place-items:center;cursor:pointer}
+.iconbtn:focus-visible{outline:3px solid var(--accent)}
+.sugg{background:var(--surface);border-radius:16px;box-shadow:0 4px 18px rgba(0,0,0,.22);overflow:hidden;max-height:55vh;overflow-y:auto;margin:0;padding:4px 0;list-style:none}
+.sugg li{display:flex;gap:12px;align-items:center;padding:11px 16px;cursor:pointer;min-height:52px}
+.sugg li[aria-selected="true"],.sugg li:hover{background:var(--hover)}
+.sugg .pin{flex:none;width:32px;height:32px;border-radius:50%;background:var(--idle-bg);display:grid;place-items:center;color:var(--muted)}
+.sugg .pin svg{width:18px;height:18px}
+.sugg .l1{font-size:16px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sugg .l2{font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sugg .txt{min-width:0;display:flex;flex-direction:column}
+.sugg .msg{color:var(--muted);font-size:14px;cursor:default}
+.legend{align-self:flex-start;background:var(--surface);color:var(--fg);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;box-shadow:0 1px 6px rgba(0,0,0,.18)}
+.legend i{width:18px;height:5px;border-radius:3px;background:#0f9d58}
+.legend i.r{background:#e53935;height:3px;margin-left:6px}
 
-/* floating locate button, standard map pattern */
 .fab{position:absolute;z-index:1000;right:max(14px,env(safe-area-inset-right,0px));bottom:14px;width:52px;height:52px;border-radius:50%;
   border:0;background:var(--surface);color:var(--muted);display:grid;place-items:center;box-shadow:0 2px 10px rgba(0,0,0,.28);cursor:pointer}
 .fab.on{color:var(--accent)}
 .fab svg{width:24px;height:24px}
 .fab:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
-.mapwrap{position:relative;flex:1;min-height:0;display:flex}
 
-/* bottom sheet: one answer, nothing else */
 .sheet{flex:none;background:var(--surface);border-top:1px solid var(--line);
   padding-block:14px calc(14px + env(safe-area-inset-bottom,0px));
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
@@ -52,7 +66,7 @@ body{font-family:var(--font);color:var(--fg);background:var(--surface);display:f
 .verdict .ico{flex:none;width:48px;height:48px;border-radius:50%;display:grid;place-items:center;font-size:26px;font-weight:800;color:#fff}
 .verdict .txt{min-width:0;display:flex;flex-direction:column;gap:2px}
 .verdict .t{font-size:22px;font-weight:800;line-height:1.15;letter-spacing:-.01em}
-.verdict .s{font-size:15px;line-height:1.3;opacity:.9;overflow-wrap:anywhere}
+.verdict .s{font-size:15px;line-height:1.35;opacity:.92;overflow-wrap:anywhere}
 .v-ok{background:var(--ok-bg);color:var(--ok)} .v-ok .ico{background:var(--ok)}
 .v-no{background:var(--no-bg);color:var(--no)} .v-no .ico{background:var(--no)}
 .v-warn{background:var(--warn-bg);color:var(--warn)} .v-warn .ico{background:var(--warn)}
@@ -63,15 +77,25 @@ body{font-family:var(--font);color:var(--fg);background:var(--surface);display:f
 .cta{border:0;border-radius:14px;padding:15px;font:inherit;font-size:17px;font-weight:700;background:var(--accent);color:#fff;cursor:pointer;min-height:52px}
 .link{border:0;background:none;font:inherit;font-size:15px;font-weight:600;color:var(--accent);padding:6px;cursor:pointer;align-self:center;min-height:44px}
 .cta:focus-visible,.link:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
-
-/* user location dot */
 .me{width:20px;height:20px;border-radius:50%;background:var(--accent);border:3px solid #fff;box-shadow:0 0 0 2px rgba(26,115,232,.35),0 1px 4px rgba(0,0,0,.4)}
 </style>
 </head>
 <body>
 <div class="mapwrap">
-  <div id="map" role="application" aria-label="Carte de ta zone riverain"></div>
-  <div class="hint" aria-hidden="true"><i></i>Tu peux <i class="r"></i>Non</div>
+  <div id="map" role="application" aria-label="Carte des places où ta carte riverain est valable"></div>
+
+  <div class="top">
+    <div class="search" role="combobox" aria-expanded="false" aria-owns="sugg" aria-haspopup="listbox" id="combo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Rechercher une adresse ou un lieu" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" aria-autocomplete="list" aria-controls="sugg" aria-label="Rechercher une adresse ou un lieu">
+      <button class="iconbtn" id="clear" type="button" aria-label="Effacer" hidden>
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <ul class="sugg" id="sugg" role="listbox" hidden></ul>
+    <div class="legend" id="legend" aria-hidden="true"><i></i>Tu peux <i class="r"></i>Non</div>
+  </div>
+
   <button class="fab" id="fab" type="button" aria-label="Me localiser">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
   </button>
@@ -80,7 +104,7 @@ body{font-family:var(--font);color:var(--fg);background:var(--surface);display:f
 <section class="sheet">
   <div id="verdict" class="verdict v-idle" role="status" aria-live="polite">
     <div class="ico" aria-hidden="true">P</div>
-    <div class="txt"><span class="t">Où es-tu ?</span><span class="s">Je vérifie si tu peux te garer là où tu es.</span></div>
+    <div class="txt"><span class="t">Où veux-tu te garer ?</span><span class="s">Localise-toi, cherche une adresse ou touche la carte.</span></div>
   </div>
   <button class="cta" id="start" type="button">Me localiser</button>
   <button class="link" id="back" type="button" hidden>Revenir à ma position</button>
@@ -89,119 +113,101 @@ body{font-family:var(--font);color:var(--fg);background:var(--surface);display:f
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const GREEN="#0f9d58", RED="#e53935", AMBER="#f2a900";
 
 // ---------- map ----------
 const map = L.map("map",{zoomControl:false,preferCanvas:true}).setView([50.8805,4.3250],16);
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
-const GREEN="#0f9d58", RED="#e53935";
-let FEAT=[], RANGES={}, ready=false, pending=null, lastKind=null;
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap · places : parking.brussels · adresses : UrbIS"}).addTo(map);
 
-// ---- spatial index: every line segment in local metres, bucketed in a 40 m grid ----
-// A check then only looks at the few segments in the 3x3 cells around the point: O(1), well under 1 ms.
-const LAT0=50.88, LNG0=4.32, KX=Math.cos(LAT0*Math.PI/180)*111320, KY=110540, CELL=40, NEAR=35;
+// ---------- data + spatial index (local metres, 25 m grid) ----------
+const LAT0=50.88, LNG0=4.32, KX=Math.cos(LAT0*Math.PI/180)*111320, KY=110540, CELL=25;
 const toX=lng=>(lng-LNG0)*KX, toY=lat=>(lat-LAT0)*KY;
-let SEG=null, GRID=new Map(), GREEN_SEG=[];   // SEG: [ax,ay,bx,by,featureIndex] flattened
+let D=null, PX=null, PY=null, GRID=new Map(), GREENS=[], ready=false, pending=null;
+
 function buildIndex(){
-  const tmp=[];
-  FEAT.forEach((f,fi)=>{ for(let i=1;i<f.c.length;i++) tmp.push(toX(f.c[i-1][1]),toY(f.c[i-1][0]),toX(f.c[i][1]),toY(f.c[i][0]),fi); });
-  SEG=new Float64Array(tmp);
-  for(let k=0;k<SEG.length;k+=5){
-    const ax=SEG[k],ay=SEG[k+1],bx=SEG[k+2],by=SEG[k+3];
-    const x0=Math.floor(Math.min(ax,bx)/CELL), x1=Math.floor(Math.max(ax,bx)/CELL), y0=Math.floor(Math.min(ay,by)/CELL), y1=Math.floor(Math.max(ay,by)/CELL);
-    for(let x=x0;x<=x1;x++) for(let y=y0;y<=y1;y++){ const key=x*100000+y; let c=GRID.get(key); if(!c) GRID.set(key,c=[]); c.push(k); }
-    if(FEAT[SEG[k+4]].t===1) GREEN_SEG.push(k);
+  const n=D.P.length; PX=new Float64Array(n); PY=new Float64Array(n);
+  for(let i=0;i<n;i++){
+    const p=D.P[i]; PX[i]=toX(p[1]); PY[i]=toY(p[0]);
+    const key=Math.floor(PX[i]/CELL)*100000+Math.floor(PY[i]/CELL);
+    let c=GRID.get(key); if(!c) GRID.set(key,c=[]); c.push(i);
+    if(p[2]===1) GREENS.push(i);
   }
 }
-function segDist(k,px,py){
-  const ax=SEG[k]-px, ay=SEG[k+1]-py, dx=SEG[k+2]-SEG[k], dy=SEG[k+3]-SEG[k+1];
-  const t=Math.max(0,Math.min(1,-(ax*dx+ay*dy)/((dx*dx+dy*dy)||1)));
-  return Math.hypot(ax+t*dx,ay+t*dy);
-}
-function nearest(lat,lng){
-  const px=toX(lng), py=toY(lat), cx=Math.floor(px/CELL), cy=Math.floor(py/CELL);
-  let bk=-1,bd=Infinity;
-  for(let x=cx-1;x<=cx+1;x++) for(let y=cy-1;y<=cy+1;y++){
+// nearest parking place within r metres (rings of grid cells, stops early)
+function nearestPlace(lat,lng,r){
+  const px=toX(lng), py=toY(lat), cx=Math.floor(px/CELL), cy=Math.floor(py/CELL), k=Math.ceil(r/CELL);
+  let bi=-1, bd=r;
+  for(let x=cx-k;x<=cx+k;x++) for(let y=cy-k;y<=cy+k;y++){
     const c=GRID.get(x*100000+y); if(!c) continue;
-    for(const k of c){ const d=segDist(k,px,py); if(d<bd){bd=d;bk=k;} }
+    for(const i of c){ const d=Math.hypot(PX[i]-px,PY[i]-py); if(d<bd){bd=d;bi=i;} }
   }
-  return bk<0||bd>NEAR ? null : {f:FEAT[SEG[bk+4]], d:bd};
+  return bi<0?null:{i:bi,d:bd};
 }
-function nearestGreen(lat,lng){  // only ~1 500 green segments: a straight scan is fast enough
-  const px=toX(lng), py=toY(lat); let bk=-1,bd=Infinity;
-  for(const k of GREEN_SEG){ const d=segDist(k,px,py); if(d<bd){bd=d;bk=k;} }
-  return bk<0?null:{f:FEAT[SEG[bk+4]], d:bd};
+function nearestGreen(lat,lng){
+  const px=toX(lng), py=toY(lat); let bi=-1, bd=Infinity;
+  for(const i of GREENS){ const d=Math.hypot(PX[i]-px,PY[i]-py); if(d<bd){bd=d;bi=i;} }
+  return bi<0?null:{i:bi,d:bd};
 }
 
-async function loadZone(){
+async function loadData(){
   for(let attempt=0;attempt<3;attempt++){
-    const ctl=new AbortController(), timer=setTimeout(()=>ctl.abort(),12000);
-    try{
-      const r=await fetch("zone.json",{signal:ctl.signal}); clearTimeout(timer);
-      if(!r.ok) throw new Error(r.status);
-      return await r.json();
-    }catch(e){ clearTimeout(timer); await new Promise(r=>setTimeout(r,1500)); }
+    const ctl=new AbortController(), t=setTimeout(()=>ctl.abort(),15000);
+    try{ const r=await fetch("places.json",{signal:ctl.signal}); clearTimeout(t); if(r.ok) return await r.json(); }
+    catch(e){ clearTimeout(t); }
+    await new Promise(r=>setTimeout(r,1500));
   }
-  throw new Error("zone");
+  throw new Error("data");
 }
-loadZone().then(z=>{
-  FEAT=z.f; RANGES=z.s||{}; buildIndex();
-  // one canvas, red first so green always sits on top
-  for(const f of FEAT) if(f.t===0) L.polyline(f.c,{color:RED,weight:3,opacity:.55,interactive:false}).addTo(map);
-  for(const f of FEAT) if(f.t===2) L.polyline(f.c,{color:"#f2a900",weight:3,opacity:.9,dashArray:"4 6",interactive:false}).addTo(map);
-  for(const f of FEAT) if(f.t===1) L.polyline(f.c,{color:GREEN,weight:6,opacity:.95,lineCap:"round",interactive:false}).addTo(map);
+loadData().then(d=>{
+  D=d; buildIndex();
+  // kerb lines: red first, then "check on site", green on top
+  const draw=(t,style)=>{ for(const l of D.L) if(l[0]===t){ const c=l.slice(1); if(c.length===1) L.circleMarker(c[0],{radius:style.weight/2+1,stroke:false,fillColor:style.color,fillOpacity:style.opacity,interactive:false}).addTo(map); else L.polyline(c,{...style,interactive:false,lineCap:"round"}).addTo(map); } };
+  draw(0,{color:RED,weight:3,opacity:.6});
+  draw(2,{color:AMBER,weight:4,opacity:.95,dashArray:"4 6"});
+  draw(1,{color:GREEN,weight:6,opacity:.95});
   ready=true;
-  if(pending){ const p=pending; pending=null; check(p.lat,p.lng); }
-}).catch(()=>show("warn","!","Carte indisponible","Pas de connexion pour charger les zones. Recharge la page."));
+  if(pending){ const p=pending; pending=null; check(p.lat,p.lng,p.r); }
+}).catch(()=>show("warn","!","Carte indisponible","Pas de connexion pour charger les places. Recharge la page."));
 
 // ---------- verdict ----------
 const V=document.getElementById("verdict"), startBtn=document.getElementById("start"), backBtn=document.getElementById("back"), fab=document.getElementById("fab");
+let lastKind=null;
 function show(kind,icon,title,sub,busy){
   V.className=`verdict v-${kind}${busy?" v-busy":""}`;
   V.innerHTML=`<div class="ico" aria-hidden="true">${icon}</div><div class="txt"><span class="t">${title}</span><span class="s">${sub}</span></div>`;
   if(!busy && kind!==lastKind && (kind==="ok"||kind==="no") && navigator.vibrate) navigator.vibrate(kind==="ok"?30:[40,60,40]);
   if(!busy) lastKind=kind;
 }
-// nearest known house number on this side of the street (within ~45 m)
-function houseNumber(f,lat,lng){
-  if(!f.a||!f.a.length) return null;
-  const px=toX(lng), py=toY(lat); let best=null,bd=45;
-  for(const [la,lo,n] of f.a){ const d=Math.hypot(toX(lo)-px,toY(la)-py); if(d<bd){bd=d;best=n;} }
-  return best;
-}
-// "impairs du 7 au 61" for the side you are on
 function coverage(name,odd){
-  const r=(RANGES[name]||[]).filter(x=>(x[0]%2===1)===odd);
-  const word=odd?"impairs":"pairs";
-  if(!r.length) return `Aucun n° ${word} couvert dans cette rue`;
-  return `Ta carte : n° ${word} `+r.map(x=>x[0]===x[1]?`${x[0]}`:`du ${x[0]} au ${x[1]}`).join(" et ");
+  const r=(D.ranges[name]||[]).filter(x=>(x[0]%2===1)===odd);
+  const w=odd?"impairs":"pairs";
+  if(!r.length) return `ta carte ne couvre aucun n° ${w} ici`;
+  return `ta carte : n° ${w} `+r.map(x=>x[0]===x[1]?`${x[0]}`:`du ${x[0]} au ${x[1]}`).join(" et ");
 }
-// the answer is read from the very lines drawn on the map, so map and answer always agree
-function check(lat,lng){
-  if(!ready){ pending={lat,lng}; show("idle","P","Chargement…","Préparation de la carte",true); return; }
-  const n=nearest(lat,lng), g=nearestGreen(lat,lng);
-  const hintGreen = g ? `Rue verte la plus proche : ${esc(g.f.n)}, à ${Math.round(g.d)} m` : "";
-  if(!n){ show("warn","?","Pas de rue ici", hintGreen || "Rapproche-toi d'une rue."); return; }
-  const f=n.f, num=houseNumber(f,lat,lng);
-  const odd = num!=null ? num%2===1 : f.p==="impairs";
-  const where = esc(f.n) + (num!=null ? ` <b>${num}</b>` : (f.p?` (côté ${f.p})`:""));
-  const known = RANGES[f.n];   // only your card's streets have ranges
-  if(f.t===1) show("ok","✓","Tu peux te garer",`${where}<br>${coverage(f.n,odd)}`);
-  else if(f.t===2) show("warn","?","À vérifier sur place",`${where}<br>${coverage(f.n,odd)} : regarde le n° le plus proche.`);
-  else show("no","✕","Pas ici",`${where}${known?"<br>"+coverage(f.n,odd):""}${hintGreen?"<br>"+hintGreen:""}`);
+function check(lat,lng,radius){
+  if(!ready){ pending={lat,lng,r:radius}; show("idle","P","Chargement…","Préparation de la carte",true); return; }
+  const n=nearestPlace(lat,lng,radius||22), g=nearestGreen(lat,lng);
+  const greenTxt = g ? `Place verte la plus proche à ${Math.round(g.d)} m` + (D.N[D.P[g.i][4]]?` (${esc(D.N[D.P[g.i][4]])})`:"") : "";
+  if(!n){ show("warn","?","Pas de place ici", greenTxt || "Aucune place de stationnement recensée à cet endroit."); return; }
+  const [ , , t, ri, ni, h]=D.P[n.i], name=D.N[ni], why=D.R[ri];
+  const where = name ? esc(name)+(h>0?` <b>${h}</b>`:"") : "Cette place";
+  const rangeTxt = (h>0 && D.ranges[name]) ? "<br>"+coverage(name,h%2===1) : "";
+  if(t===1) show("ok","✓","Tu peux te garer",`${where}${rangeTxt}`);
+  else if(t===2) show("warn","?","À vérifier sur place",`${where}<br>${esc(why)}`);
+  else show("no","✕","Pas ici",`${where} · ${esc(why)}${greenTxt?"<br>"+greenTxt:""}`);
 }
 
 // ---------- location ----------
 let meMarker=null, accCircle=null, watchId=null, follow=true, pin=null, lastPos=null, lastChecked=null;
 const meIcon=L.divIcon({className:"",html:'<div class="me"></div>',iconSize:[20,20],iconAnchor:[10,10]});
-
 function onPos(p){
   const ll=L.latLng(p.coords.latitude,p.coords.longitude); lastPos=ll;
-  if(!meMarker){ meMarker=L.marker(ll,{icon:meIcon,interactive:false,keyboard:false}).addTo(map); accCircle=L.circle(ll,{radius:p.coords.accuracy,color:"#1a73e8",weight:1,fillOpacity:.08,interactive:false}).addTo(map); map.setView(ll,18); }
+  if(!meMarker){ meMarker=L.marker(ll,{icon:meIcon,interactive:false,keyboard:false}).addTo(map); accCircle=L.circle(ll,{radius:p.coords.accuracy,color:"#1a73e8",weight:1,fillOpacity:.08,interactive:false}).addTo(map); if(!pin) map.setView(ll,18); }
   else { meMarker.setLatLng(ll); accCircle.setLatLng(ll).setRadius(p.coords.accuracy); if(follow && !pin) map.panTo(ll); }
   startBtn.hidden=true; fab.classList.add("on");
   if(pin) return;
   if(p.coords.accuracy>60){ show("warn","!","Position imprécise",`Précision ±${Math.round(p.coords.accuracy)} m. Avance un peu à découvert.`); return; }
-  if(!lastChecked || map.distance(lastChecked,ll)>5){ lastChecked=ll; check(ll.lat,ll.lng); }
+  if(!lastChecked || map.distance(lastChecked,ll)>4){ lastChecked=ll; check(ll.lat,ll.lng,22); }
 }
 function onErr(e){
   watchId=null; fab.classList.remove("on"); startBtn.hidden=false;
@@ -213,29 +219,81 @@ function startWatch(){
   show("idle","P","Localisation…","Je cherche ta position",true);
   watchId=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:3000,timeout:20000});
 }
+function setPin(ll){ if(pin) pin.setLatLng(ll); else pin=L.marker(ll).addTo(map); backBtn.hidden=!lastPos && watchId===null; follow=false; }
 function backToMe(){
   if(pin){ map.removeLayer(pin); pin=null; }
   backBtn.hidden=true; follow=true; lastKind=null;
-  if(lastPos){ map.setView(lastPos,18); lastChecked=lastPos; check(lastPos.lat,lastPos.lng); }
+  if(lastPos){ map.setView(lastPos,18); lastChecked=lastPos; check(lastPos.lat,lastPos.lng,22); }
   else startWatch();
 }
-
 startBtn.addEventListener("click",startWatch);
 fab.addEventListener("click",()=>{ if(watchId===null) startWatch(); else backToMe(); });
 backBtn.addEventListener("click",backToMe);
 map.on("dragstart",()=>{ follow=false; });
-map.on("click",e=>{
-  if(pin) pin.setLatLng(e.latlng); else pin=L.marker(e.latlng).addTo(map);
-  backBtn.hidden=!lastPos; follow=false; check(e.latlng.lat,e.latlng.lng);
-});
+map.on("click",e=>{ closeSugg(); setPin(e.latlng); check(e.latlng.lat,e.latlng.lng,22); });
 
+// ---------- search with suggestions (Photon / OpenStreetMap, biased to Brussels) ----------
+const q=document.getElementById("q"), list=document.getElementById("sugg"), combo=document.getElementById("combo"), clearBtn=document.getElementById("clear");
+let items=[], active=-1, ctl=null, timer=null;
+const PIN_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';
+function label(f){
+  const p=f.properties, street=p.street||"", num=p.housenumber||"";
+  const l1 = p.name && p.name!==street ? p.name : (street ? `${street}${num?" "+num:""}` : (p.name||""));
+  const l2 = [p.name && street && p.name!==street ? `${street}${num?" "+num:""}` : "", p.postcode, p.city||p.district||p.locality].filter(Boolean).join(", ");
+  return {l1,l2};
+}
+function render(){
+  if(!items.length){ list.hidden=true; combo.setAttribute("aria-expanded","false"); return; }
+  list.innerHTML=items.map((f,i)=>{ const {l1,l2}=label(f); return `<li role="option" id="opt${i}" aria-selected="${i===active}" data-i="${i}"><span class="pin" aria-hidden="true">${PIN_SVG}</span><span class="txt"><span class="l1">${esc(l1)}</span><span class="l2">${esc(l2)}</span></span></li>`; }).join("");
+  list.hidden=false; combo.setAttribute("aria-expanded","true");
+  q.setAttribute("aria-activedescendant", active>=0?`opt${active}`:"");
+}
+function message(txt){ items=[]; list.innerHTML=`<li class="msg">${esc(txt)}</li>`; list.hidden=false; }
+function closeSugg(){ list.hidden=true; combo.setAttribute("aria-expanded","false"); active=-1; }
+async function suggest(text){
+  if(ctl) ctl.abort(); ctl=new AbortController();
+  const url=`https://photon.komoot.io/api/?q=${encodeURIComponent(text)}&lang=fr&limit=7&lat=50.88&lon=4.325&location_bias_scale=0.5&bbox=4.24,50.76,4.49,50.92`;
+  try{
+    const r=await fetch(url,{signal:ctl.signal}); const j=await r.json();
+    // keep Brussels results, drop duplicates
+    const seen=new Set(); items=[];
+    for(const f of j.features||[]){ const {l1,l2}=label(f); const k=l1+"|"+l2; if(!l1||seen.has(k)) continue; seen.add(k); items.push(f); }
+    active=items.length?0:-1;
+    if(items.length) render(); else message("Aucun résultat à Bruxelles");
+  }catch(e){ if(e.name!=="AbortError") message("Recherche indisponible pour l'instant"); }
+}
+function choose(i){
+  const f=items[i]; if(!f) return;
+  const [lng,lat]=f.geometry.coordinates, {l1}=label(f);
+  q.value=l1; closeSugg(); q.blur();
+  const ll=L.latLng(lat,lng); setPin(ll); map.setView(ll,18);
+  // an address point sits on the building: look a bit further for its kerb
+  check(lat,lng,35);
+}
+q.addEventListener("input",()=>{
+  clearBtn.hidden=!q.value; clearTimeout(timer);
+  const t=q.value.trim();
+  if(t.length<3){ closeSugg(); return; }
+  timer=setTimeout(()=>suggest(t),220);
+});
+q.addEventListener("keydown",e=>{
+  if(list.hidden) return;
+  if(e.key==="ArrowDown"){ e.preventDefault(); active=Math.min(items.length-1,active+1); render(); }
+  else if(e.key==="ArrowUp"){ e.preventDefault(); active=Math.max(0,active-1); render(); }
+  else if(e.key==="Enter"){ e.preventDefault(); choose(active<0?0:active); }
+  else if(e.key==="Escape"){ closeSugg(); }
+});
+q.addEventListener("focus",()=>{ if(items.length) render(); });
+list.addEventListener("pointerdown",e=>{ const li=e.target.closest("li[data-i]"); if(li){ e.preventDefault(); choose(+li.dataset.i); } });
+clearBtn.addEventListener("click",()=>{ q.value=""; clearBtn.hidden=true; items=[]; closeSugg(); q.focus(); });
+
+// ---------- start ----------
 if(navigator.permissions&&navigator.permissions.query){
   navigator.permissions.query({name:"geolocation"}).then(r=>{ if(r.state==="granted") startWatch(); }).catch(()=>{});
 }
 if("serviceWorker" in navigator){
   const hadSW=!!navigator.serviceWorker.controller;
   navigator.serviceWorker.register("sw.js").catch(()=>{});
-  // a fresh version just took control: reload once so you never stay on an old page
   navigator.serviceWorker.addEventListener("controllerchange",()=>{ if(hadSW && !sessionStorage.getItem("gj-r")){ sessionStorage.setItem("gj-r","1"); location.reload(); } });
 }
 </script>

@@ -99,8 +99,10 @@ places = fetch(PB, "ParkingBrussels:on_street", page=None,
 _box = (x0, y0, x1, y1)
 places = [f for f in places if f.get("geometry") and _box[0] <= shape(f["geometry"]).centroid.x <= _box[2]
           and _box[1] <= shape(f["geometry"]).centroid.y <= _box[3]]
-addrs = fetch(URBIS, "urbisvector:AddressNumbers")
-axes = fetch(URBIS, "urbisvector:StreetAxes")
+# UrbIS also refuses bbox paging on addresses: filter by postcode (Jette, Laeken, Ganshoren, Koekelberg, Molenbeek)
+addrs = fetch(URBIS, "urbisvector:AddressNumbers", page=None,
+              extra={"CQL_FILTER": "ZIPCODE IN ('1090','1020','1083','1081','1080')"})
+axes = fetch(URBIS, "urbisvector:StreetAxes", page=None)
 sectors = fetch(PB, "ParkingBrussels:permit_secteurs_mailles", page=None, extra={"CQL_FILTER": "zonecode IN (%s)" % ",".join(f"'{c}'" for c in CARD_SECTORS)})
 borders = fetch(PB, "ParkingBrussels:permit_limitrophes", page=None, extra={"CQL_FILTER": "zonecode IN (%s)" % ",".join(f"'{c}'" for c in CARD_BORDER)})
 print(f"downloaded: {len(places)} places, {len(addrs)} address rows, {len(axes)} axes, "

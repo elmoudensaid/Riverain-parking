@@ -25,11 +25,11 @@ for u in CAPS:
     try:
         final, txt = get(u)
         print("final url:", final, "bytes:", len(txt))
-        names = re.findall(r"<(?:wfs:)?FeatureType>.*?<(?:wfs:)?Name>(.*?)</.*?<(?:wfs:)?Title>(.*?)</", txt, re.S)
+        names = re.findall(r"<(?:wfs:)?FeatureType\b[^>]*>\s*<(?:wfs:)?Name>(.*?)</(?:wfs:)?Name>\s*<(?:wfs:)?Title>(.*?)</", txt, re.S)
         for n, t in names:
             print(f"  {n:60s} {t}")
         if not names:
-            print(txt[:1500])
+            print(txt[:300])
     except Exception as e:
         print("ERROR", e)
 

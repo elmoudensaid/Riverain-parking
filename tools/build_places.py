@@ -161,15 +161,16 @@ def street_and_number(pt):
     if key not in A_tree:
         return name, None, line
     my_side, s_pt = side_of(line, pt), line.project(pt)
-    cand = []
+    cand, opp = [], []
     for j in A_tree[key].query(pt, predicate="dwithin", distance=70):
         apt, n = A_by_street[key][j]
-        if side_of(line, apt) != my_side:
-            continue
-        cand.append((abs(line.project(apt) - s_pt) + 0.3 * apt.distance(pt), n))
-    if not cand:
-        return name, None, line
-    return name, min(cand)[1], line
+        d = abs(line.project(apt) - s_pt) + 0.3 * apt.distance(pt)
+        (cand if side_of(line, apt) == my_side else opp).append((d, n))
+    if cand:
+        return name, min(cand)[1], line
+    if opp:
+        return name, -min(opp)[1], line  # negative = number of the house across the street
+    return name, None, line
 
 
 # ---------- verdict for every place ----------
@@ -182,11 +183,20 @@ for f in places:
     pt = pts[0]
     name, num, _ = street_and_number(pt)
     key = norm(name) if name else None
+    if key not in CARD and num is not None and num < 0:
+        num = None
     typres, typreg = p.get("typres") or 0, p.get("typreg") or 0
     in_poly = sector_geom.contains(pt) or sector_geom.distance(pt) < 3
 
     # is this spot inside the card's territory? the PDF list decides, the official polygon backs it up
-    if key in CARD and num is not None:
+    if key in CARD and num is not None and num < 0:
+        # no building on this side: the numbers here are the neighbours of the house opposite
+        across = -num
+        guesses = [n for n in (across - 1, across + 1) if n > 0]
+        hits = [in_ranges(key, n) for n in guesses]
+        in_card = True if all(hits) else (False if not any(hits) else None)
+        num = None
+    elif key in CARD and num is not None:
         in_card = in_ranges(key, num)
         if in_card != in_poly:
             disagree.append((name, num, in_card, in_poly))

@@ -30,11 +30,14 @@ for rec in ["e0396d91-4f11-11ef-b5dd-f020ff9afd75", "3a549366-4a95-11ef-9cb4-f02
             url = a.get("url") or ""
             print("  attachment:", url)
             if "FR" in url.rsplit("/", 1)[-1] and url.endswith(".pdf"):
-                open("/tmp/spec.pdf", "wb").write(get(url, raw=True))
-                print(subprocess.run(["pdftotext", "-layout", "/tmp/spec.pdf", "-"], capture_output=True, text=True).stdout)
+                import io
+                from pypdf import PdfReader
+                r = PdfReader(io.BytesIO(get(url, raw=True)))
+                print("\n".join(pg.extract_text() or "" for pg in r.pages))
     except Exception as e:
         print("ERROR", e)
 
+import sys; sys.exit(0)
 # 2) parking places in Jette: which codes occur
 print("=" * 90, "\nON_STREET JETTE")
 try:

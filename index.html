@@ -33,6 +33,7 @@ body{font-family:var(--font);color:var(--fg);background:var(--surface);display:f
 .hint{position:absolute;z-index:1000;top:calc(env(safe-area-inset-top,0px) + 12px);left:max(12px,env(safe-area-inset-left,0px));
   background:var(--surface);color:var(--fg);border-radius:999px;padding:7px 12px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;box-shadow:0 1px 6px rgba(0,0,0,.2)}
 .hint i{width:18px;height:5px;border-radius:3px;background:var(--zone)}
+.hint i.r{background:#e53935;height:3px;margin-left:6px}
 
 /* floating locate button, standard map pattern */
 .fab{position:absolute;z-index:1000;right:max(14px,env(safe-area-inset-right,0px));bottom:14px;width:52px;height:52px;border-radius:50%;
@@ -70,7 +71,7 @@ body{font-family:var(--font);color:var(--fg);background:var(--surface);display:f
 <body>
 <div class="mapwrap">
   <div id="map" role="application" aria-label="Carte de ta zone riverain"></div>
-  <div class="hint" aria-hidden="true"><i></i>Ta zone</div>
+  <div class="hint" aria-hidden="true"><i></i>Tu peux <i class="r"></i>Non</div>
   <button class="fab" id="fab" type="button" aria-label="Me localiser">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
   </button>
@@ -87,189 +88,64 @@ body{font-family:var(--font);color:var(--fg);background:var(--surface);display:f
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
-const SECTORS = {
-  florair:{name:"Florair", color:"var(--c-florair)"},
-  lim:{name:"Florair élargi", color:"var(--c-lim)"},
-  theodor:{name:"Theodor", color:"var(--c-theodor)"},
-  prb:{name:"Parc Roi Baudouin", color:"var(--c-prb)"},
-  ess:{name:"Esseghem", color:"var(--c-ess)"}
-};
-// [sector, street, [[from,to],...]] — each range applies to the side (odd/even) of its first number
-const RAW = [
- ["florair","Avenue Ernest Masoin",[[1,43]]],
- ["florair","Avenue Guillaume De Greef",[[1,499],[2,498]]],
- ["florair","Avenue du Comté de Jette",[[1,15]]],
- ["florair","Avenue du Sacré-Cœur",[[33,95]]],
- ["florair","Boulevard de Smet de Naeyer",[[383,423],[398,496]]],
- ["florair","Clos 't Hof ten Berg",[[1,27],[2,26]]],
- ["florair","Place Arthur Van Gehuchten",[[1,19]]],
- ["florair","Rue Duysburgh",[[17,35],[28,64]]],
- ["florair","Rue Ernest Salu",[[12,16]]],
- ["florair","Rue Eugène Hubert",[[2,22]]],
- ["florair","Rue Gustave Gilson",[[21,145],[86,156]]],
- ["florair","Rue Ledeganck",[[1,13],[2,6]]],
- ["florair","Rue Léopold Peret",[[7,61],[2,62]]],
- ["florair","Rue Pierre Verschelden",[[3,41],[4,48]]],
- ["florair","Rue Saint-Norbert",[[13,101],[2,76]]],
- ["florair","Rue Théophile de Baisieux",[[89,175],[82,140]]],
- ["florair","Rue de Laubespin",[[86,106]]],
- ["lim","Avenue Stiénon",[[97,151]]],
- ["theodor","Avenue Charles Woeste",[[47,119]]],
- ["theodor","Avenue Secrétin",[[5,31]]],
- ["theodor","Avenue des Démineurs",[[1,31],[2,6]]],
- ["theodor","Boulevard de Smet de Naeyer",[[109,291],[102,260],[293,299]]],
- ["theodor","Chaussée de Wemmel",[[1,89],[91,91],[93,113],[115,179],[181,261]]],
- ["theodor","Place Cardinal Mercier",[[1,51],[2,48]]],
- ["theodor","Place Laneau",[[1,1],[2,2]]],
- ["theodor","Rue Adolphe Vandenschrieck",[[39,121],[40,110]]],
- ["theodor","Rue Ferdinand Lenoir",[[1,113],[2,122]]],
- ["theodor","Rue François Couteaux",[[1,41],[6,56]]],
- ["theodor","Rue Gillebertus",[[1,43],[4,42]]],
- ["theodor","Rue Gustave Van Huynegem",[[21,35],[2,38]]],
- ["theodor","Rue Henri Van Bortonne",[[1,111],[2,106]]],
- ["theodor","Rue Henri Werrie",[[1,89],[6,96]]],
- ["theodor","Rue Jean-Baptiste Verbeyst",[[1,25],[2,50]]],
- ["theodor","Rue Jules Lahaye",[[3,81],[2,62]]],
- ["theodor","Rue Léon Théodor",[[1,253],[2,266]]],
- ["theodor","Rue Léopold Ier",[[403,529]]],
- ["theodor","Rue Paul Michiels",[[1,83],[2,72]]],
- ["theodor","Rue Pierre De Breuker",[[1,23],[2,24]]],
- ["theodor","Rue Saint-Vincent de Paul",[[1,73],[2,74]]],
- ["theodor","Rue Thomaes",[[1,75],[2,68]]],
- ["theodor","Rue Tilmont",[[5,125],[2,120]]],
- ["theodor","Rue de l'Église Saint-Pierre",[[3,89],[8,100]]],
- ["theodor","Rue de l'Équité",[[5,33],[6,38]]],
- ["theodor","Rue de l'Héroïsme",[[5,25],[4,28]]],
- ["prb","Avenue de l'Exposition",[[218,264]]],
- ["prb","Avenue du Sacré-Cœur",[[2,8]]],
- ["prb","Chaussée de Dieleghem",[[7,145],[2,154]]],
- ["prb","Chaussée de Wemmel",[[273,315],[248,314]]],
- ["prb","Rue Antoine Baeck",[[1,145],[2,146]]],
- ["prb","Rue Bonaventure",[[3,135]]],
- ["prb","Rue Decrée",[[7,25],[2,32]]],
- ["prb","Rue Dupré",[[3,141],[66,158]]],
- ["prb","Rue Eugène Toussaint",[[135,139]]],
- ["prb","Rue Fernande Volral",[[1,37],[4,26]]],
- ["prb","Rue Frédéric Mohrfeld",[[1,71],[2,76]]],
- ["prb","Rue René Reniers",[[5,77],[4,72]]],
- ["prb","Rue Valère Broekaert",[[1,85],[2,76]]],
- ["prb","Square Jules Lorge",[[6,14]]],
- ["ess","Avenue Charles Woeste",[[47,119],[36,128]]],
- ["ess","Boulevard de Smet de Naeyer",[[293,387],[276,350]]],
- ["ess","Rond-Point du Pannenhuis",[[1,9],[2,2]]],
- ["ess","Rue Amélie Gomand",[[5,53],[2,24]]],
- ["ess","Rue Dansette",[[1,51],[2,30]]],
- ["ess","Rue Esseghem",[[3,171],[2,118]]],
- ["ess","Rue Gustave Delathouwer",[[3,7],[4,6]]],
- ["ess","Rue Jacobs Fontaine",[[77,107],[100,132]]],
- ["ess","Rue Joseph Loossens",[[1,23],[2,46]]],
- ["ess","Rue Jules Lahaye",[[119,241],[78,310]]],
- ["ess","Rue Léopold Ier",[[305,391],[284,332]]],
- ["ess","Rue de la Bravoure",[[1,45],[6,48]]],
- ["ess","Rue de la Loyauté",[[1,39],[8,34]]],
- ["ess","Rue de la Résistance",[[3,37],[6,32]]],
- ["ess","Rue des Augustines",[[25,109],[14,114]]]
-];
-
-const norm = s => (s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase()
-  .replace(/œ/g,"oe").replace(/[’'`]/g," ").replace(/[-.]/g," ").replace(/\bier\b/g,"i").replace(/\s+/g," ").trim();
-const STREETS = {};
-for (const [sec,name,ranges] of RAW){ const k=norm(name); (STREETS[k] ||= {name,parts:[]}).parts.push({sec,ranges}); }
-const findStreet = raw => { if(!raw) return null; for(const c of [raw,...raw.split(" - ")]){ const s=STREETS[norm(c)]; if(s) return s; } return null; };
-const covers = (r,n) => n>=r[0] && n<=r[1] && (n%2)===(r[0]%2);
-const fmt = r => r[0]===r[1] ? `${r[0]}` : `${r[0]} à ${r[1]}`;
-const side = r => r[0]%2 ? "impairs" : "pairs";
 const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const OVERPASS = ["https://overpass-api.de/api/interpreter","https://overpass.kumi.systems/api/interpreter"];
-async function overpass(q){
-  for(const u of OVERPASS){
-    try{ const r=await fetch(u,{method:"POST",body:"data="+encodeURIComponent(q),headers:{"Content-Type":"application/x-www-form-urlencoded"}}); if(r.ok) return await r.json(); }catch(e){}
-  }
-  return null;
-}
 
 // ---------- map ----------
-const map = L.map("map",{zoomControl:false}).setView([50.8805,4.3250],15);
+const map = L.map("map",{zoomControl:false,preferCanvas:true}).setView([50.8805,4.3250],16);
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
-const lines=[];
-(async function drawZone(){
-  const CK="gj-geom-v1"; let data=null;
-  try{ data=JSON.parse(localStorage.getItem(CK)||"null"); }catch(e){}
-  if(!data){
-    const j=await overpass(`[out:json][timeout:40];way["highway"]["name"](50.862,4.295,50.902,4.352);out tags geom;`);
-    if(!j) return;
-    data=j.elements.filter(e=>e.geometry).map(e=>({n:[e.tags["name:fr"],e.tags.name].filter(Boolean),g:e.geometry.map(p=>[+p.lat.toFixed(6),+p.lon.toFixed(6)])})).filter(e=>e.n.some(findStreet));
-    try{ localStorage.setItem(CK,JSON.stringify(data)); }catch(e){}
-  }
-  for(const w of data){
-    const st=w.n.map(findStreet).find(Boolean); if(!st) continue;
-    L.polyline(w.g,{color:"#ffffff",weight:9,opacity:.9,interactive:false}).addTo(map);
-    L.polyline(w.g,{color:"#0f9d58",weight:5,opacity:.95,interactive:false}).addTo(map);
-    lines.push({st,g:w.g});
-  }
-})();
+const GREEN="#0f9d58", RED="#e53935";
+let FEAT=[], ready=false;
 
-function nearestStreet(lat,lng){
-  const k=Math.cos(lat*Math.PI/180)*111320, m=110540; let best=null,bd=1e9;
-  for(const l of lines) for(let i=1;i<l.g.length;i++){
-    const ax=(l.g[i-1][1]-lng)*k, ay=(l.g[i-1][0]-lat)*m, bx=(l.g[i][1]-lng)*k, by=(l.g[i][0]-lat)*m;
+// metres per degree around Jette, for fast distance maths
+const KX=Math.cos(50.88*Math.PI/180)*111320, KY=110540;
+function distToFeat(f,lat,lng){
+  let bd=1e9; const c=f.c;
+  for(let i=1;i<c.length;i++){
+    const ax=(c[i-1][1]-lng)*KX, ay=(c[i-1][0]-lat)*KY, bx=(c[i][1]-lng)*KX, by=(c[i][0]-lat)*KY;
     const dx=bx-ax, dy=by-ay, t=Math.max(0,Math.min(1,-(ax*dx+ay*dy)/((dx*dx+dy*dy)||1)));
-    const d=Math.hypot(ax+t*dx,ay+t*dy); if(d<bd){bd=d;best=l.st;}
+    const d=Math.hypot(ax+t*dx,ay+t*dy); if(d<bd) bd=d;
   }
-  return bd<=25?best:null;
+  return bd;
 }
-async function nearestNumber(lat,lng,st){
-  const j=await overpass(`[out:json][timeout:15];nwr(around:70,${lat},${lng})["addr:housenumber"]["addr:street"];out center tags;`);
-  if(!j) return null; let best=null,bd=1e9;
-  for(const e of j.elements){
-    const c=e.center||{lat:e.lat,lon:e.lon}; if(c.lat==null) continue;
-    if(![e.tags["addr:street:fr"],e.tags["addr:street"]].some(n=>n&&findStreet(n)===st)) continue;
-    const n=parseInt(e.tags["addr:housenumber"],10); if(isNaN(n)) continue;
-    const d=map.distance([lat,lng],[c.lat,c.lon]); if(d<bd){bd=d;best=n;}
-  }
-  return best;
-}
+
+fetch("zone.json",{cache:"no-cache"}).then(r=>r.json()).then(z=>{
+  FEAT=z.f;
+  // red first so green always sits on top
+  for(const f of FEAT) if(!f.t) L.polyline(f.c,{color:RED,weight:3,opacity:.55,interactive:false}).addTo(map);
+  for(const f of FEAT) if(f.t)  L.polyline(f.c,{color:GREEN,weight:6,opacity:.95,lineCap:"round",interactive:false}).addTo(map);
+  ready=true;
+  if(pending){ const p=pending; pending=null; check(p.lat,p.lng); }
+}).catch(()=>show("warn","!","Carte indisponible","Impossible de charger les zones. Recharge la page."));
 
 // ---------- verdict ----------
 const V=document.getElementById("verdict"), startBtn=document.getElementById("start"), backBtn=document.getElementById("back"), fab=document.getElementById("fab");
-let lastKind=null;
+let lastKind=null, pending=null;
 function show(kind,icon,title,sub,busy){
   V.className=`verdict v-${kind}${busy?" v-busy":""}`;
   V.innerHTML=`<div class="ico" aria-hidden="true">${icon}</div><div class="txt"><span class="t">${title}</span><span class="s">${sub}</span></div>`;
   if(!busy && kind!==lastKind && (kind==="ok"||kind==="no") && navigator.vibrate) navigator.vibrate(kind==="ok"?30:[40,60,40]);
   if(!busy) lastKind=kind;
 }
-function judge(st,num,road){
-  if(!st){ show("no","✕","Pas ta zone",`${esc(road||"Cette rue")} n'est pas couverte. Va vers une rue en vert.`); return; }
-  if(num==null){
-    const r=st.parts.flatMap(p=>p.ranges).map(r=>`${side(r)} ${fmt(r)}`).join(", ");
-    show("warn","?","Vérifie le numéro",`${esc(st.name)} : seulement ${r}.`); return;
+const sideTxt=f=>f.p?` (côté ${f.p})`:"";
+// the answer is read from the very lines drawn on the map, so map and answer always agree
+function check(lat,lng){
+  if(!ready){ pending={lat,lng}; show("idle","P","Je vérifie…","Chargement de la carte",true); return; }
+  let best=null,bd=1e9,green=null,gd=1e9;
+  for(const f of FEAT){
+    const d=distToFeat(f,lat,lng);
+    if(d<bd){bd=d;best=f;}
+    if(f.t && d<gd){gd=d;green=f;}
   }
-  if(st.parts.some(p=>p.ranges.some(r=>covers(r,num)))) show("ok","✓","Tu peux te garer",`${esc(st.name)} ${num}`);
-  else show("no","✕","Pas ici",`${esc(st.name)} ${num} n'est pas couvert. Change de côté ou de bout de rue.`);
-}
-
-let seq=0;
-async function check(lat,lng){
-  const my=++seq;
-  show("idle","P","Je vérifie…","Recherche de la rue",true);
-  let road=null,num=null;
-  try{
-    const j=await (await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=fr`)).json();
-    road=j.address&&(j.address.road||j.address.pedestrian)||null;
-    num=j.address&&j.address.house_number?parseInt(j.address.house_number,10):null; if(isNaN(num)) num=null;
-  }catch(e){
-    if(my===seq) show("warn","!","Pas de connexion","Impossible de vérifier l'adresse. Réessaie dans un instant.");
+  if(!best || bd>35){
+    show("warn","?","Pas de rue ici",green?`Rue verte la plus proche : ${esc(green.n)}, à ${Math.round(gd)} m.`:"Rapproche-toi d'une rue.");
     return;
   }
-  let st=findStreet(road);
-  if(!road) st=nearestStreet(lat,lng);
-  if(st && num==null) num=await nearestNumber(lat,lng,st);
-  if(my===seq) judge(st,num,road);
+  if(best.t) show("ok","✓","Tu peux te garer",`${esc(best.n)}${sideTxt(best)}`);
+  else show("no","✕","Pas ici",`${esc(best.n)}${sideTxt(best)}`+(green?` · rue verte la plus proche à ${Math.round(gd)} m`:""));
 }
 
 // ---------- location ----------
-let meMarker=null, accCircle=null, watchId=null, follow=true, pin=null, lastPos=null, lastChecked=null, lastCheckAt=0;
+let meMarker=null, accCircle=null, watchId=null, follow=true, pin=null, lastPos=null, lastChecked=null;
 const meIcon=L.divIcon({className:"",html:'<div class="me"></div>',iconSize:[20,20],iconAnchor:[10,10]});
 
 function onPos(p){
@@ -279,8 +155,7 @@ function onPos(p){
   startBtn.hidden=true; fab.classList.add("on");
   if(pin) return;
   if(p.coords.accuracy>60){ show("warn","!","Position imprécise",`Précision ±${Math.round(p.coords.accuracy)} m. Avance un peu à découvert.`); return; }
-  const moved=!lastChecked || map.distance(lastChecked,ll)>12;
-  if(moved && Date.now()-lastCheckAt>2500){ lastCheckAt=Date.now(); lastChecked=ll; check(ll.lat,ll.lng); }
+  if(!lastChecked || map.distance(lastChecked,ll)>5){ lastChecked=ll; check(ll.lat,ll.lng); }
 }
 function onErr(e){
   watchId=null; fab.classList.remove("on"); startBtn.hidden=false;
@@ -294,8 +169,8 @@ function startWatch(){
 }
 function backToMe(){
   if(pin){ map.removeLayer(pin); pin=null; }
-  backBtn.hidden=true; follow=true; lastChecked=null; lastKind=null;
-  if(lastPos){ map.setView(lastPos,18); lastCheckAt=0; check(lastPos.lat,lastPos.lng); lastChecked=lastPos; }
+  backBtn.hidden=true; follow=true; lastKind=null;
+  if(lastPos){ map.setView(lastPos,18); lastChecked=lastPos; check(lastPos.lat,lastPos.lng); }
   else startWatch();
 }
 
@@ -308,7 +183,6 @@ map.on("click",e=>{
   backBtn.hidden=!lastPos; follow=false; check(e.latlng.lat,e.latlng.lng);
 });
 
-// open straight on the answer when location is already allowed
 if(navigator.permissions&&navigator.permissions.query){
   navigator.permissions.query({name:"geolocation"}).then(r=>{ if(r.state==="granted") startWatch(); }).catch(()=>{});
 }

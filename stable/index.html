@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="theme-color" content="#0f1a2e">
+<title>Garer à Jette (version stable)</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://tile.openstreetmap.org">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{
+  --surface:#ffffff; --fg:#111a2c; --muted:#5d6880; --line:#e3e7ef;
+  --zone:#0f9d58;
+  --ok:#0b7a43; --ok-bg:#e2f5ea; --no:#c0261b; --no-bg:#fde8e6; --warn:#8a5a00; --warn-bg:#fff2d6; --idle-bg:#eef1f6;
+  --accent:#1a73e8;
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root{
+  --surface:#121a2b; --fg:#eef2f9; --muted:#9ba7bf; --line:#253049;
+  --ok:#5fd99a; --ok-bg:#103424; --no:#ff8c80; --no-bg:#3d1817; --warn:#f4c766; --warn-bg:#382c10; --idle-bg:#1b2539;
+  color-scheme:dark}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{font-family:var(--font);color:var(--fg);background:var(--surface);display:flex;flex-direction:column;overflow:hidden;-webkit-tap-highlight-color:transparent}
+#map{flex:1;min-height:0;background:#dfe4ec}
+.leaflet-container{font-family:var(--font)}
+
+/* zone hint, top-left */
+.hint{position:absolute;z-index:1000;top:calc(env(safe-area-inset-top,0px) + 12px);left:max(12px,env(safe-area-inset-left,0px));
+  background:var(--surface);color:var(--fg);border-radius:999px;padding:7px 12px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;box-shadow:0 1px 6px rgba(0,0,0,.2)}
+.hint i{width:18px;height:5px;border-radius:3px;background:var(--zone)}
+.hint i.r{background:#e53935;height:3px;margin-left:6px}
+
+/* floating locate button, standard map pattern */
+.fab{position:absolute;z-index:1000;right:max(14px,env(safe-area-inset-right,0px));bottom:14px;width:52px;height:52px;border-radius:50%;
+  border:0;background:var(--surface);color:var(--muted);display:grid;place-items:center;box-shadow:0 2px 10px rgba(0,0,0,.28);cursor:pointer}
+.fab.on{color:var(--accent)}
+.fab svg{width:24px;height:24px}
+.fab:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.mapwrap{position:relative;flex:1;min-height:0;display:flex}
+
+/* bottom sheet: one answer, nothing else */
+.sheet{flex:none;background:var(--surface);border-top:1px solid var(--line);
+  padding-block:14px calc(14px + env(safe-area-inset-bottom,0px));
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  display:flex;flex-direction:column;gap:10px}
+.verdict{display:flex;gap:14px;align-items:center;border-radius:16px;padding:14px;min-height:84px;transition:background-color .2s}
+.verdict .ico{flex:none;width:48px;height:48px;border-radius:50%;display:grid;place-items:center;font-size:26px;font-weight:800;color:#fff}
+.verdict .txt{min-width:0;display:flex;flex-direction:column;gap:2px}
+.verdict .t{font-size:22px;font-weight:800;line-height:1.15;letter-spacing:-.01em}
+.verdict .s{font-size:15px;line-height:1.3;opacity:.9;overflow-wrap:anywhere}
+.v-ok{background:var(--ok-bg);color:var(--ok)} .v-ok .ico{background:var(--ok)}
+.v-no{background:var(--no-bg);color:var(--no)} .v-no .ico{background:var(--no)}
+.v-warn{background:var(--warn-bg);color:var(--warn)} .v-warn .ico{background:var(--warn)}
+.v-idle{background:var(--idle-bg);color:var(--fg)} .v-idle .ico{background:var(--muted)}
+.v-busy .ico{animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.45}}
+@media (prefers-reduced-motion:reduce){.v-busy .ico{animation:none}.verdict{transition:none}}
+.cta{border:0;border-radius:14px;padding:15px;font:inherit;font-size:17px;font-weight:700;background:var(--accent);color:#fff;cursor:pointer;min-height:52px}
+.link{border:0;background:none;font:inherit;font-size:15px;font-weight:600;color:var(--accent);padding:6px;cursor:pointer;align-self:center;min-height:44px}
+.cta:focus-visible,.link:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
+
+/* user location dot */
+.me{width:20px;height:20px;border-radius:50%;background:var(--accent);border:3px solid #fff;box-shadow:0 0 0 2px rgba(26,115,232,.35),0 1px 4px rgba(0,0,0,.4)}
+</style>
+</head>
+<body>
+<div class="mapwrap">
+  <div id="map" role="application" aria-label="Carte de ta zone riverain"></div>
+  <div class="hint" aria-hidden="true"><i></i>Tu peux <i class="r"></i>Non</div>
+  <button class="fab" id="fab" type="button" aria-label="Me localiser">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
+  </button>
+</div>
+
+<section class="sheet">
+  <div id="verdict" class="verdict v-idle" role="status" aria-live="polite">
+    <div class="ico" aria-hidden="true">P</div>
+    <div class="txt"><span class="t">Où es-tu ?</span><span class="s">Je vérifie si tu peux te garer là où tu es.</span></div>
+  </div>
+  <button class="cta" id="start" type="button">Me localiser</button>
+  <button class="link" id="back" type="button" hidden>Revenir à ma position</button>
+</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+// ---------- map ----------
+const map = L.map("map",{zoomControl:false,preferCanvas:true}).setView([50.8805,4.3250],16);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
+const GREEN="#0f9d58", RED="#e53935";
+let FEAT=[], RANGES={}, ready=false, pending=null, lastKind=null;
+
+// ---- spatial index: every line segment in local metres, bucketed in a 40 m grid ----
+// A check then only looks at the few segments in the 3x3 cells around the point: O(1), well under 1 ms.
+const LAT0=50.88, LNG0=4.32, KX=Math.cos(LAT0*Math.PI/180)*111320, KY=110540, CELL=40, NEAR=35;
+const toX=lng=>(lng-LNG0)*KX, toY=lat=>(lat-LAT0)*KY;
+let SEG=null, GRID=new Map(), GREEN_SEG=[];   // SEG: [ax,ay,bx,by,featureIndex] flattened
+function buildIndex(){
+  const tmp=[];
+  FEAT.forEach((f,fi)=>{ for(let i=1;i<f.c.length;i++) tmp.push(toX(f.c[i-1][1]),toY(f.c[i-1][0]),toX(f.c[i][1]),toY(f.c[i][0]),fi); });
+  SEG=new Float64Array(tmp);
+  for(let k=0;k<SEG.length;k+=5){
+    const ax=SEG[k],ay=SEG[k+1],bx=SEG[k+2],by=SEG[k+3];
+    const x0=Math.floor(Math.min(ax,bx)/CELL), x1=Math.floor(Math.max(ax,bx)/CELL), y0=Math.floor(Math.min(ay,by)/CELL), y1=Math.floor(Math.max(ay,by)/CELL);
+    for(let x=x0;x<=x1;x++) for(let y=y0;y<=y1;y++){ const key=x*100000+y; let c=GRID.get(key); if(!c) GRID.set(key,c=[]); c.push(k); }
+    if(FEAT[SEG[k+4]].t===1) GREEN_SEG.push(k);
+  }
+}
+function segDist(k,px,py){
+  const ax=SEG[k]-px, ay=SEG[k+1]-py, dx=SEG[k+2]-SEG[k], dy=SEG[k+3]-SEG[k+1];
+  const t=Math.max(0,Math.min(1,-(ax*dx+ay*dy)/((dx*dx+dy*dy)||1)));
+  return Math.hypot(ax+t*dx,ay+t*dy);
+}
+function nearest(lat,lng){
+  const px=toX(lng), py=toY(lat), cx=Math.floor(px/CELL), cy=Math.floor(py/CELL);
+  let bk=-1,bd=Infinity;
+  for(let x=cx-1;x<=cx+1;x++) for(let y=cy-1;y<=cy+1;y++){
+    const c=GRID.get(x*100000+y); if(!c) continue;
+    for(const k of c){ const d=segDist(k,px,py); if(d<bd){bd=d;bk=k;} }
+  }
+  return bk<0||bd>NEAR ? null : {f:FEAT[SEG[bk+4]], d:bd};
+}
+function nearestGreen(lat,lng){  // only ~1 500 green segments: a straight scan is fast enough
+  const px=toX(lng), py=toY(lat); let bk=-1,bd=Infinity;
+  for(const k of GREEN_SEG){ const d=segDist(k,px,py); if(d<bd){bd=d;bk=k;} }
+  return bk<0?null:{f:FEAT[SEG[bk+4]], d:bd};
+}
+
+async function loadZone(){
+  for(let attempt=0;attempt<3;attempt++){
+    const ctl=new AbortController(), timer=setTimeout(()=>ctl.abort(),12000);
+    try{
+      const r=await fetch("zone.json",{signal:ctl.signal}); clearTimeout(timer);
+      if(!r.ok) throw new Error(r.status);
+      return await r.json();
+    }catch(e){ clearTimeout(timer); await new Promise(r=>setTimeout(r,1500)); }
+  }
+  throw new Error("zone");
+}
+loadZone().then(z=>{
+  FEAT=z.f; RANGES=z.s||{}; buildIndex();
+  // one canvas, red first so green always sits on top
+  for(const f of FEAT) if(f.t===0) L.polyline(f.c,{color:RED,weight:3,opacity:.55,interactive:false}).addTo(map);
+  for(const f of FEAT) if(f.t===2) L.polyline(f.c,{color:"#f2a900",weight:3,opacity:.9,dashArray:"4 6",interactive:false}).addTo(map);
+  for(const f of FEAT) if(f.t===1) L.polyline(f.c,{color:GREEN,weight:6,opacity:.95,lineCap:"round",interactive:false}).addTo(map);
+  ready=true;
+  if(pending){ const p=pending; pending=null; check(p.lat,p.lng); }
+}).catch(()=>show("warn","!","Carte indisponible","Pas de connexion pour charger les zones. Recharge la page."));
+
+// ---------- verdict ----------
+const V=document.getElementById("verdict"), startBtn=document.getElementById("start"), backBtn=document.getElementById("back"), fab=document.getElementById("fab");
+function show(kind,icon,title,sub,busy){
+  V.className=`verdict v-${kind}${busy?" v-busy":""}`;
+  V.innerHTML=`<div class="ico" aria-hidden="true">${icon}</div><div class="txt"><span class="t">${title}</span><span class="s">${sub}</span></div>`;
+  if(!busy && kind!==lastKind && (kind==="ok"||kind==="no") && navigator.vibrate) navigator.vibrate(kind==="ok"?30:[40,60,40]);
+  if(!busy) lastKind=kind;
+}
+// nearest known house number on this side of the street (within ~45 m)
+function houseNumber(f,lat,lng){
+  if(!f.a||!f.a.length) return null;
+  const px=toX(lng), py=toY(lat); let best=null,bd=45;
+  for(const [la,lo,n] of f.a){ const d=Math.hypot(toX(lo)-px,toY(la)-py); if(d<bd){bd=d;best=n;} }
+  return best;
+}
+// "impairs du 7 au 61" for the side you are on
+function coverage(name,odd){
+  const r=(RANGES[name]||[]).filter(x=>(x[0]%2===1)===odd);
+  const word=odd?"impairs":"pairs";
+  if(!r.length) return `Aucun n° ${word} couvert dans cette rue`;
+  return `Ta carte : n° ${word} `+r.map(x=>x[0]===x[1]?`${x[0]}`:`du ${x[0]} au ${x[1]}`).join(" et ");
+}
+// the answer is read from the very lines drawn on the map, so map and answer always agree
+function check(lat,lng){
+  if(!ready){ pending={lat,lng}; show("idle","P","Chargement…","Préparation de la carte",true); return; }
+  const n=nearest(lat,lng), g=nearestGreen(lat,lng);
+  const hintGreen = g ? `Rue verte la plus proche : ${esc(g.f.n)}, à ${Math.round(g.d)} m` : "";
+  if(!n){ show("warn","?","Pas de rue ici", hintGreen || "Rapproche-toi d'une rue."); return; }
+  const f=n.f, num=houseNumber(f,lat,lng);
+  const odd = num!=null ? num%2===1 : f.p==="impairs";
+  const where = esc(f.n) + (num!=null ? ` <b>${num}</b>` : (f.p?` (côté ${f.p})`:""));
+  const known = RANGES[f.n];   // only your card's streets have ranges
+  if(f.t===1) show("ok","✓","Tu peux te garer",`${where}<br>${coverage(f.n,odd)}`);
+  else if(f.t===2) show("warn","?","À vérifier sur place",`${where}<br>${coverage(f.n,odd)} : regarde le n° le plus proche.`);
+  else show("no","✕","Pas ici",`${where}${known?"<br>"+coverage(f.n,odd):""}${hintGreen?"<br>"+hintGreen:""}`);
+}
+
+// ---------- location ----------
+let meMarker=null, accCircle=null, watchId=null, follow=true, pin=null, lastPos=null, lastChecked=null;
+const meIcon=L.divIcon({className:"",html:'<div class="me"></div>',iconSize:[20,20],iconAnchor:[10,10]});
+
+function onPos(p){
+  const ll=L.latLng(p.coords.latitude,p.coords.longitude); lastPos=ll;
+  if(!meMarker){ meMarker=L.marker(ll,{icon:meIcon,interactive:false,keyboard:false}).addTo(map); accCircle=L.circle(ll,{radius:p.coords.accuracy,color:"#1a73e8",weight:1,fillOpacity:.08,interactive:false}).addTo(map); map.setView(ll,18); }
+  else { meMarker.setLatLng(ll); accCircle.setLatLng(ll).setRadius(p.coords.accuracy); if(follow && !pin) map.panTo(ll); }
+  startBtn.hidden=true; fab.classList.add("on");
+  if(pin) return;
+  if(p.coords.accuracy>60){ show("warn","!","Position imprécise",`Précision ±${Math.round(p.coords.accuracy)} m. Avance un peu à découvert.`); return; }
+  if(!lastChecked || map.distance(lastChecked,ll)>5){ lastChecked=ll; check(ll.lat,ll.lng); }
+}
+function onErr(e){
+  watchId=null; fab.classList.remove("on"); startBtn.hidden=false;
+  show("warn","!","Position bloquée", e.code===1 ? "Autorise la localisation pour ce site dans Chrome (icône à gauche de l'adresse)." : "GPS indisponible pour l'instant. Réessaie.");
+}
+function startWatch(){
+  if(!("geolocation" in navigator)){ show("warn","!","GPS indisponible","Ton navigateur ne donne pas la position."); return; }
+  if(watchId!==null) return;
+  show("idle","P","Localisation…","Je cherche ta position",true);
+  watchId=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:3000,timeout:20000});
+}
+function backToMe(){
+  if(pin){ map.removeLayer(pin); pin=null; }
+  backBtn.hidden=true; follow=true; lastKind=null;
+  if(lastPos){ map.setView(lastPos,18); lastChecked=lastPos; check(lastPos.lat,lastPos.lng); }
+  else startWatch();
+}
+
+startBtn.addEventListener("click",startWatch);
+fab.addEventListener("click",()=>{ if(watchId===null) startWatch(); else backToMe(); });
+backBtn.addEventListener("click",backToMe);
+map.on("dragstart",()=>{ follow=false; });
+map.on("click",e=>{
+  if(pin) pin.setLatLng(e.latlng); else pin=L.marker(e.latlng).addTo(map);
+  backBtn.hidden=!lastPos; follow=false; check(e.latlng.lat,e.latlng.lng);
+});
+
+if(navigator.permissions&&navigator.permissions.query){
+  navigator.permissions.query({name:"geolocation"}).then(r=>{ if(r.state==="granted") startWatch(); }).catch(()=>{});
+}
+if("serviceWorker" in navigator){
+  const hadSW=!!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register("sw.js").catch(()=>{});
+  // a fresh version just took control: reload once so you never stay on an old page
+  navigator.serviceWorker.addEventListener("controllerchange",()=>{ if(hadSW && !sessionStorage.getItem("gj-r")){ sessionStorage.setItem("gj-r","1"); location.reload(); } });
+}
+</script>
+</body>
+</html>

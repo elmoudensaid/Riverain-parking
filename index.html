@@ -23,6 +23,7 @@
   --sign:#2c63ba; --ok:#5fd396; --ok-bg:#12342a; --no:#ff8a80; --no-bg:#3a1a1c; --warn:#f2c460; --warn-bg:#3a2e12;
   color-scheme:dark}}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;line-height:1.4;display:flex;flex-direction:column;overflow:hidden}
 #map{flex:1;min-height:0;background:#dde3ec}
@@ -231,7 +232,7 @@ async function loadGeometry(){
   }
 }
 
-// nearest covered street (fallback when reverse geocoding fails)
+// nearest covered street from the drawn lines -> {st, d} (d in metres)
 function nearestStreet(lat,lng){
   const k=Math.cos(lat*Math.PI/180)*111320, m=110540; let best=null,bd=1e9;
   for(const l of lines){
@@ -242,7 +243,28 @@ function nearestStreet(lat,lng){
       if(d<bd){bd=d;best=l.st;}
     }
   }
-  return bd<=25?best:null;
+  return {st:best,d:bd};
+}
+
+// nearest house number on a given street, from OpenStreetMap addresses around the point
+async function nearestNumber(lat,lng,st){
+  const q=`[out:json][timeout:15];nwr(around:70,${lat},${lng})["addr:housenumber"]["addr:street"];out center tags;`;
+  for(const u of ["https://overpass-api.de/api/interpreter","https://overpass.kumi.systems/api/interpreter"]){
+    try{
+      const r=await fetch(u,{method:"POST",body:"data="+encodeURIComponent(q),headers:{"Content-Type":"application/x-www-form-urlencoded"}});
+      if(!r.ok) continue;
+      const j=await r.json(); let best=null,bd=1e9;
+      for(const e of j.elements){
+        const c=e.center||{lat:e.lat,lon:e.lon}; if(c.lat==null) continue;
+        const names=[e.tags["addr:street:fr"],e.tags["addr:street"]].filter(Boolean);
+        if(!names.some(n=>findStreet(n)===st)) continue;
+        const n=parseInt(e.tags["addr:housenumber"],10); if(isNaN(n)) continue;
+        const d=map.distance([lat,lng],[c.lat,c.lon]); if(d<bd){bd=d;best=n;}
+      }
+      return best;
+    }catch(e){}
+  }
+  return null;
 }
 
 // ---- verdict ----
@@ -255,23 +277,32 @@ function showRanges(st){
 function judge(st,num,label){
   showRanges(st);
   if(!st){ show("no","✗ Pas dans tes secteurs",`${esc(label||"Cette rue")} n'est pas couverte par ta carte riverain.`); return; }
-  if(num==null||isNaN(num)){ show("warn","Rue dans tes secteurs",`${esc(st.name)} : numéro pas trouvé. Regarde le n° sur la façade et vérifie les tranches ci-dessous.`); return; }
+  if(num==null||isNaN(num)){
+    const secs=st.parts.map(p=>SECTORS[p.sec].name).join(" + ");
+    const ranges=st.parts.map(p=>p.ranges.map(r=>`${side(r)} ${fmt(r)}`).join(", ")).join(" / ");
+    show("warn",`Secteur ${secs}`,`${esc(st.name)} est dans ta carte (${ranges}). Je n'ai pas trouvé le numéro exact ici : jette un œil au n° le plus proche.`); return; }
   const hit=st.parts.filter(p=>p.ranges.some(r=>covers(r,num)));
   if(hit.length) show("ok","✓ Tu peux te garer",`${esc(st.name)} ${num} · secteur ${hit.map(p=>SECTORS[p.sec].name).join(" + ")}`);
   else show("no","✗ Pas couvert ici",`${esc(st.name)} ${num} est hors de tes tranches. Change de côté ou de bout de rue.`);
 }
 
-let pin=null, lastGeo=0;
+let pin=null, lastGeo=0, seq=0;
 async function checkPoint(lat,lng,fromGps){
+  const my=++seq;
   if(!fromGps){ if(pin) pin.setLatLng([lat,lng]); else pin=L.marker([lat,lng]).addTo(map); }
-  show("info","Je vérifie…","Recherche de l'adresse la plus proche.");
+  show("info","Je vérifie…","Recherche de la rue et du numéro.");
   let road=null, num=null;
   try{
     const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=fr`);
     const j=await r.json(); road=j.address&&(j.address.road||j.address.pedestrian); num=j.address&&j.address.house_number?parseInt(j.address.house_number,10):null;
   }catch(e){}
   let st=findStreet(road);
-  if(!st && !road){ st=nearestStreet(lat,lng); }
+  if(!road){ const near=nearestStreet(lat,lng); if(near.st && near.d<=25) st=near.st; }
+  if(st && (num==null||isNaN(num))){
+    show("info","Je vérifie…",`${esc(st.name)} : je cherche le numéro le plus proche.`);
+    num=await nearestNumber(lat,lng,st);
+  }
+  if(my!==seq) return;
   judge(st,num,road);
 }
 

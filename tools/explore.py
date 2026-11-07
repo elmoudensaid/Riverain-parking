@@ -1,51 +1,57 @@
 """One-off exploration of the official open data services (run in GitHub Actions)."""
-import re, sys, urllib.request, json
+import collections, json, re, subprocess, urllib.parse, urllib.request
 
 UA = {"User-Agent": "riverain-parking-explore"}
-CAPS_ALL = [
-    "https://data.parking.brussels/geoserver/ParkingBrussels/ows?service=WFS&request=GetCapabilities",
-    "https://geodata.parking.brussels/geoserver/ParkingBrussels/ows?service=WFS&request=GetCapabilities",
-    "https://geodata.parking.brussels/geoserver/ows?service=WFS&request=GetCapabilities",
-    "https://ows.parking.brussels/ws/ParkingBrussels/ows?service=WFS&request=GetCapabilities",
-    "https://data.mobility.brussels/geoserver/bm_parking/wfs?service=WFS&request=GetCapabilities",
-    "https://geoservices-urbis.irisnet.be/geoserver/UrbisAdm/wfs?service=WFS&request=GetCapabilities",
-    "https://geoservices-urbis.irisnet.be/geoserver/urbisvector/wfs?service=WFS&request=GetCapabilities",
-]
+PB = "https://ows.parking.brussels/ws/ParkingBrussels/ows"
+GN = "https://geobru-geonetwork.irisnet.be/geonetwork/srv/api/records/"
 
 
-def get(url, n=None):
-    req = urllib.request.Request(url, headers=UA)
-    with urllib.request.urlopen(req, timeout=90) as r:
-        b = r.read() if n is None else r.read(n)
-        return r.geturl(), b.decode("utf-8", "replace")
+def get(url, raw=False):
+    req = urllib.request.Request(url, headers={**UA, "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=180) as r:
+        b = r.read()
+        return b if raw else b.decode("utf-8", "replace")
 
 
-CAPS = []
-for u in CAPS:
-    print("=" * 100, "\n", u)
+def wfs(base, layer, cql=None):
+    q = {"service": "WFS", "version": "2.0.0", "request": "GetFeature", "typeNames": layer,
+         "outputFormat": "application/json", "srsName": "EPSG:4326"}
+    if cql:
+        q["CQL_FILTER"] = cql
+    return json.loads(get(base + "?" + urllib.parse.urlencode(q)))
+
+
+# 1) technical specifications (code tables) attached to the catalogue records
+for rec in ["e0396d91-4f11-11ef-b5dd-f020ff9afd75", "3a549366-4a95-11ef-9cb4-f020ff9afd75"]:
+    print("=" * 90, "\nRECORD", rec)
     try:
-        final, txt = get(u)
-        print("final url:", final, "bytes:", len(txt))
-        names = re.findall(r"<(?:wfs:)?FeatureType\b[^>]*>\s*<(?:wfs:)?Name>(.*?)</(?:wfs:)?Name>\s*<(?:wfs:)?Title>(.*?)</", txt, re.S)
-        for n, t in names:
-            print(f"  {n:60s} {t}")
-        if not names:
-            print(txt[:300])
+        lst = json.loads(get(GN + rec + "/attachments"))
+        for a in lst:
+            url = a.get("url") or ""
+            print("  attachment:", url)
+            if "FR" in url.rsplit("/", 1)[-1] and url.endswith(".pdf"):
+                open("/tmp/spec.pdf", "wb").write(get(url, raw=True))
+                print(subprocess.run(["pdftotext", "-layout", "/tmp/spec.pdf", "-"], capture_output=True, text=True).stdout)
     except Exception as e:
         print("ERROR", e)
 
-# sample a few features from candidate layers
-SAMPLES = sys.argv[1:]
-for spec in SAMPLES:
-    base, layer = spec.split("|")
-    url = f"{base}?service=WFS&version=2.0.0&request=GetFeature&typeNames={layer}&count=3&outputFormat=application/json&srsName=EPSG:4326"
-    print("=" * 100, "\nSAMPLE", layer)
+# 2) parking places in Jette: which codes occur
+print("=" * 90, "\nON_STREET JETTE")
+try:
+    fs = wfs(PB, "ParkingBrussels:on_street", "muniscode='21010'")["features"]
+    print("places:", len(fs))
+    for k in ["typres", "typreg", "situation", "orientation", "evp", "code_metier", "md_id"]:
+        print(f"  {k}: {collections.Counter(f['properties'].get(k) for f in fs).most_common(25)}")
+except Exception as e:
+    print("ERROR", e)
+
+# 3) official sectors for Jette and the Florair border extension
+print("=" * 90, "\nSECTORS")
+for layer in ["ParkingBrussels:permit_secteurs_mailles", "ParkingBrussels:permit_limitrophes"]:
     try:
-        _, txt = get(url)
-        j = json.loads(txt)
-        print("numberMatched:", j.get("numberMatched"), "totalFeatures:", j.get("totalFeatures"))
-        for f in j.get("features", [])[:3]:
-            g = f.get("geometry") or {}
-            print("  geom:", g.get("type"), "props:", json.dumps(f.get("properties"), ensure_ascii=False)[:900])
+        for f in wfs(PB, layer)["features"]:
+            txt = json.dumps(f["properties"], ensure_ascii=False)
+            if re.search(r"JET|Jette|FLORAIR|Florair|ESSEG|THEOD|BAUD", txt, re.I):
+                print(" ", layer.split(":")[1], txt[:300])
     except Exception as e:
-        print("ERROR", e, txt[:500] if 'txt' in dir() else "")
+        print("ERROR", e)

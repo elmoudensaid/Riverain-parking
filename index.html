@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1d4f9c">
+<title>Garer à Jette</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Barlow+Condensed:wght@600;700&display=swap">
+<style>
+:root{
+  --bg:#f3f5f9; --surface:#ffffff; --fg:#14213a; --muted:#5b6780; --line:#d9dfea;
+  --sign:#1d4f9c; --sign-fg:#ffffff;
+  --ok:#14794a; --ok-bg:#e3f4ea; --no:#b3261e; --no-bg:#fbe7e5; --warn:#8a5a00; --warn-bg:#fdf1d6;
+  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0e1525; --surface:#172036; --fg:#e8edf7; --muted:#9aa6bf; --line:#2a3550;
+  --sign:#2c63ba; --ok:#5fd396; --ok-bg:#12342a; --no:#ff8a80; --no-bg:#3a1a1c; --warn:#f2c460; --warn-bg:#3a2e12;
+  color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;line-height:1.4;display:flex;flex-direction:column;overflow:hidden}
+#map{flex:1;min-height:0;background:#dde3ec}
+.top{position:absolute;z-index:1000;top:calc(env(safe-area-inset-top,0px) + 10px);left:max(10px,env(safe-area-inset-left,0px));right:max(10px,env(safe-area-inset-right,0px));display:flex;gap:8px;align-items:flex-start;pointer-events:none}
+.badge{pointer-events:auto;background:var(--sign);color:#fff;border-radius:12px;padding:8px 12px;display:flex;gap:10px;align-items:center;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.badge .p{width:30px;height:30px;border-radius:7px;background:#fff;color:var(--sign);font:700 23px/30px var(--display);text-align:center}
+.badge b{font:700 19px/1 var(--display)}
+.badge small{display:block;font-size:12px;opacity:.85}
+.legend{pointer-events:auto;margin-left:auto;background:var(--surface);border-radius:12px;padding:6px 10px;font-size:12px;display:grid;gap:2px;box-shadow:0 2px 10px rgba(0,0,0,.2)}
+.legend span{display:flex;gap:6px;align-items:center;white-space:nowrap}
+.sw{width:14px;height:4px;border-radius:2px;display:inline-block}
+.sheet{flex:none;background:var(--surface);border-top:1px solid var(--line);border-radius:18px 18px 0 0;margin-top:-16px;position:relative;z-index:1000;padding-block:12px calc(14px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:10px;box-shadow:0 -4px 18px rgba(0,0,0,.12);max-height:55vh;overflow-y:auto}
+.verdict{border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:3px}
+.verdict .big{font:700 27px/1.05 var(--display)}
+.verdict small{font-size:14px}
+.verdict.ok{background:var(--ok-bg);color:var(--ok)}
+.verdict.no{background:var(--no-bg);color:var(--no)}
+.verdict.warn{background:var(--warn-bg);color:var(--warn)}
+.verdict.info{background:var(--bg);color:var(--fg)}
+.btns{display:grid;grid-template-columns:1fr auto;gap:8px}
+button{font:inherit;cursor:pointer}
+.primary{background:var(--sign);color:#fff;border:0;border-radius:12px;padding:13px 14px;font-weight:700;font-size:17px}
+.ghost{background:transparent;color:var(--sign);border:1.5px solid var(--sign);border-radius:12px;padding:12px 14px;font-weight:700}
+.primary:focus-visible,.ghost:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
+.ranges{font-size:14px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ranges b{color:var(--fg)}
+.expiry{font-size:13px;border-radius:10px;padding:6px 10px}
+.expiry.warn{background:var(--warn-bg);color:var(--warn)}
+.expiry.no{background:var(--no-bg);color:var(--no)}
+.expiry.ok{color:var(--muted);padding:0}
+.manual{display:grid;grid-template-columns:1fr 90px;gap:8px}
+.manual input{font:inherit;font-size:17px;color:var(--fg);background:var(--bg);border:1.5px solid var(--line);border-radius:10px;padding:10px;width:100%;min-width:0}
+details summary{cursor:pointer;color:var(--muted);font-size:14px}
+.rules{margin:6px 0 0;padding-left:18px;font-size:14px}
+.hint{font-size:12px;color:var(--muted)}
+.leaflet-container{font-family:var(--body)}
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="badge"><div class="p">P</div><div><b>Garer à Jette</b><small>Carte riverain</small></div></div>
+  <div class="legend" id="legend"></div>
+</div>
+<div id="map" role="application" aria-label="Carte de mes secteurs"></div>
+
+<section class="sheet" aria-live="polite">
+  <div id="verdict" class="verdict info"><span class="big">Où es-tu ?</span><small>Appuie sur « Me localiser » ou touche la carte là où tu veux te garer.</small></div>
+  <div id="ranges" class="ranges"></div>
+  <div class="btns">
+    <button class="primary" id="locate" type="button">📍 Me localiser</button>
+    <button class="ghost" id="toggleManual" type="button">Taper une rue</button>
+  </div>
+  <div class="manual" id="manual" hidden>
+    <input id="street" list="streets" placeholder="Rue" autocomplete="off" aria-label="Rue">
+    <input id="num" inputmode="numeric" placeholder="N°" autocomplete="off" aria-label="Numéro">
+    <datalist id="streets"></datalist>
+  </div>
+  <div id="expiry" class="expiry"></div>
+  <details>
+    <summary>Interdit même avec la carte</summary>
+    <ul class="rules"><li>Zones orange</li><li>Zones de livraison</li><li>Places voitures partagées</li><li>Kiss &amp; ride</li><li>Places de recharge électrique</li><li>Zones Shop &amp; Go</li><li>Emplacements réservés (sauf « réservé riverain »)</li></ul>
+  </details>
+  <p class="hint">Le GPS peut se tromper de 10–20 m : en limite de tranche ou de côté de rue, vérifie le numéro sur la façade. Données : confirmation parking.brussels (valable jusqu'au 11/11/2026), fond de carte © OpenStreetMap.</p>
+</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const SECTORS = {
+  florair:{name:"Florair", color:"var(--c-florair)"},
+  lim:{name:"Florair élargi", color:"var(--c-lim)"},
+  theodor:{name:"Theodor", color:"var(--c-theodor)"},
+  prb:{name:"Parc Roi Baudouin", color:"var(--c-prb)"},
+  ess:{name:"Esseghem", color:"var(--c-ess)"}
+};
+// [sector, street, [[from,to],...]] — each range applies to the side (odd/even) of its first number
+const RAW = [
+ ["florair","Avenue Ernest Masoin",[[1,43]]],
+ ["florair","Avenue Guillaume De Greef",[[1,499],[2,498]]],
+ ["florair","Avenue du Comté de Jette",[[1,15]]],
+ ["florair","Avenue du Sacré-Cœur",[[33,95]]],
+ ["florair","Boulevard de Smet de Naeyer",[[383,423],[398,496]]],
+ ["florair","Clos 't Hof ten Berg",[[1,27],[2,26]]],
+ ["florair","Place Arthur Van Gehuchten",[[1,19]]],
+ ["florair","Rue Duysburgh",[[17,35],[28,64]]],
+ ["florair","Rue Ernest Salu",[[12,16]]],
+ ["florair","Rue Eugène Hubert",[[2,22]]],
+ ["florair","Rue Gustave Gilson",[[21,145],[86,156]]],
+ ["florair","Rue Ledeganck",[[1,13],[2,6]]],
+ ["florair","Rue Léopold Peret",[[7,61],[2,62]]],
+ ["florair","Rue Pierre Verschelden",[[3,41],[4,48]]],
+ ["florair","Rue Saint-Norbert",[[13,101],[2,76]]],
+ ["florair","Rue Théophile de Baisieux",[[89,175],[82,140]]],
+ ["florair","Rue de Laubespin",[[86,106]]],
+ ["lim","Avenue Stiénon",[[97,151]]],
+ ["theodor","Avenue Charles Woeste",[[47,119]]],
+ ["theodor","Avenue Secrétin",[[5,31]]],
+ ["theodor","Avenue des Démineurs",[[1,31],[2,6]]],
+ ["theodor","Boulevard de Smet de Naeyer",[[109,291],[102,260],[293,299]]],
+ ["theodor","Chaussée de Wemmel",[[1,89],[91,91],[93,113],[115,179],[181,261]]],
+ ["theodor","Place Cardinal Mercier",[[1,51],[2,48]]],
+ ["theodor","Place Laneau",[[1,1],[2,2]]],
+ ["theodor","Rue Adolphe Vandenschrieck",[[39,121],[40,110]]],
+ ["theodor","Rue Ferdinand Lenoir",[[1,113],[2,122]]],
+ ["theodor","Rue François Couteaux",[[1,41],[6,56]]],
+ ["theodor","Rue Gillebertus",[[1,43],[4,42]]],
+ ["theodor","Rue Gustave Van Huynegem",[[21,35],[2,38]]],
+ ["theodor","Rue Henri Van Bortonne",[[1,111],[2,106]]],
+ ["theodor","Rue Henri Werrie",[[1,89],[6,96]]],
+ ["theodor","Rue Jean-Baptiste Verbeyst",[[1,25],[2,50]]],
+ ["theodor","Rue Jules Lahaye",[[3,81],[2,62]]],
+ ["theodor","Rue Léon Théodor",[[1,253],[2,266]]],
+ ["theodor","Rue Léopold Ier",[[403,529]]],
+ ["theodor","Rue Paul Michiels",[[1,83],[2,72]]],
+ ["theodor","Rue Pierre De Breuker",[[1,23],[2,24]]],
+ ["theodor","Rue Saint-Vincent de Paul",[[1,73],[2,74]]],
+ ["theodor","Rue Thomaes",[[1,75],[2,68]]],
+ ["theodor","Rue Tilmont",[[5,125],[2,120]]],
+ ["theodor","Rue de l'Église Saint-Pierre",[[3,89],[8,100]]],
+ ["theodor","Rue de l'Équité",[[5,33],[6,38]]],
+ ["theodor","Rue de l'Héroïsme",[[5,25],[4,28]]],
+ ["prb","Avenue de l'Exposition",[[218,264]]],
+ ["prb","Avenue du Sacré-Cœur",[[2,8]]],
+ ["prb","Chaussée de Dieleghem",[[7,145],[2,154]]],
+ ["prb","Chaussée de Wemmel",[[273,315],[248,314]]],
+ ["prb","Rue Antoine Baeck",[[1,145],[2,146]]],
+ ["prb","Rue Bonaventure",[[3,135]]],
+ ["prb","Rue Decrée",[[7,25],[2,32]]],
+ ["prb","Rue Dupré",[[3,141],[66,158]]],
+ ["prb","Rue Eugène Toussaint",[[135,139]]],
+ ["prb","Rue Fernande Volral",[[1,37],[4,26]]],
+ ["prb","Rue Frédéric Mohrfeld",[[1,71],[2,76]]],
+ ["prb","Rue René Reniers",[[5,77],[4,72]]],
+ ["prb","Rue Valère Broekaert",[[1,85],[2,76]]],
+ ["prb","Square Jules Lorge",[[6,14]]],
+ ["ess","Avenue Charles Woeste",[[47,119],[36,128]]],
+ ["ess","Boulevard de Smet de Naeyer",[[293,387],[276,350]]],
+ ["ess","Rond-Point du Pannenhuis",[[1,9],[2,2]]],
+ ["ess","Rue Amélie Gomand",[[5,53],[2,24]]],
+ ["ess","Rue Dansette",[[1,51],[2,30]]],
+ ["ess","Rue Esseghem",[[3,171],[2,118]]],
+ ["ess","Rue Gustave Delathouwer",[[3,7],[4,6]]],
+ ["ess","Rue Jacobs Fontaine",[[77,107],[100,132]]],
+ ["ess","Rue Joseph Loossens",[[1,23],[2,46]]],
+ ["ess","Rue Jules Lahaye",[[119,241],[78,310]]],
+ ["ess","Rue Léopold Ier",[[305,391],[284,332]]],
+ ["ess","Rue de la Bravoure",[[1,45],[6,48]]],
+ ["ess","Rue de la Loyauté",[[1,39],[8,34]]],
+ ["ess","Rue de la Résistance",[[3,37],[6,32]]],
+ ["ess","Rue des Augustines",[[25,109],[14,114]]]
+];
+SECTORS.florair.hex="#1d4f9c"; SECTORS.lim.hex="#4f9fe0"; SECTORS.theodor.hex="#8a3fb0"; SECTORS.prb.hex="#14794a"; SECTORS.ess.hex="#d0661a";
+
+const norm = s => (s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase()
+  .replace(/œ/g,"oe").replace(/[’'`]/g," ").replace(/[-.]/g," ").replace(/\bier\b/g,"i").replace(/\s+/g," ").trim();
+
+const STREETS = {};
+for (const [sec,name,ranges] of RAW){
+  const k = norm(name);
+  (STREETS[k] ||= {name, key:k, parts:[]}).parts.push({sec,ranges});
+}
+const covers = (r,n) => n>=r[0] && n<=r[1] && (n%2)===(r[0]%2);
+const side = r => r[0]%2 ? "impairs" : "pairs";
+const fmt = r => r[0]===r[1] ? `${r[0]}` : `${r[0]}–${r[1]}`;
+const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function findStreet(raw){
+  if (!raw) return null;
+  // OSM / Nominatim names in Brussels can be bilingual "Rue X - Xstraat"
+  const cands = [raw, ...raw.split(" - ")];
+  for (const c of cands){ const s = STREETS[norm(c)]; if (s) return s; }
+  return null;
+}
+
+// ---- map ----
+const map = L.map("map",{zoomControl:false,attributionControl:true}).setView([50.8805,4.3250],15);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
+document.getElementById("legend").innerHTML = Object.values(SECTORS).map(s=>`<span><i class="sw" style="background:${s.hex}"></i>${s.name}</span>`).join("");
+
+const lines = []; // {street, latlngs}
+async function loadGeometry(){
+  const CK="gj-geom-v1"; let data=null;
+  try{ const c=localStorage.getItem(CK); if(c) data=JSON.parse(c);}catch(e){}
+  if(!data){
+    const q=`[out:json][timeout:40];way["highway"]["name"](50.862,4.295,50.902,4.352);out tags geom;`;
+    const urls=["https://overpass-api.de/api/interpreter","https://overpass.kumi.systems/api/interpreter"];
+    for(const u of urls){
+      try{
+        const r=await fetch(u,{method:"POST",body:"data="+encodeURIComponent(q),headers:{"Content-Type":"application/x-www-form-urlencoded"}});
+        if(!r.ok) continue;
+        const j=await r.json();
+        data=j.elements.filter(e=>e.geometry).map(e=>({n:[e.tags["name:fr"],e.tags.name].filter(Boolean),g:e.geometry.map(p=>[+p.lat.toFixed(6),+p.lon.toFixed(6)])}))
+          .filter(e=>e.n.some(n=>findStreet(n)));
+        try{localStorage.setItem(CK,JSON.stringify(data));}catch(e){}
+        break;
+      }catch(e){}
+    }
+  }
+  if(!data) return;
+  for(const w of data){
+    const st = w.n.map(findStreet).find(Boolean); if(!st) continue;
+    const secs = st.parts.map(p=>p.sec);
+    const pl = L.polyline(w.g,{color:SECTORS[secs[0]].hex,weight:6,opacity:.8,lineCap:"round"}).addTo(map);
+    if(secs.length>1) L.polyline(w.g,{color:SECTORS[secs[1]].hex,weight:2,opacity:1,dashArray:"6 8"}).addTo(map);
+    pl.on("click",e=>{L.DomEvent.stopPropagation(e); checkPoint(e.latlng.lat,e.latlng.lng,false);});
+    lines.push({st,g:w.g});
+  }
+}
+
+// nearest covered street (fallback when reverse geocoding fails)
+function nearestStreet(lat,lng){
+  const k=Math.cos(lat*Math.PI/180)*111320, m=110540; let best=null,bd=1e9;
+  for(const l of lines){
+    for(let i=1;i<l.g.length;i++){
+      const ax=(l.g[i-1][1]-lng)*k, ay=(l.g[i-1][0]-lat)*m, bx=(l.g[i][1]-lng)*k, by=(l.g[i][0]-lat)*m;
+      const dx=bx-ax, dy=by-ay, t=Math.max(0,Math.min(1,-(ax*dx+ay*dy)/((dx*dx+dy*dy)||1)));
+      const d=Math.hypot(ax+t*dx, ay+t*dy);
+      if(d<bd){bd=d;best=l.st;}
+    }
+  }
+  return bd<=25?best:null;
+}
+
+// ---- verdict ----
+const V=document.getElementById("verdict"), R=document.getElementById("ranges");
+function show(cls,big,small){V.className="verdict "+cls;V.innerHTML=`<span class="big">${big}</span><small>${small}</small>`;}
+function showRanges(st){
+  if(!st){R.innerHTML="";return;}
+  R.innerHTML = `<b>${esc(st.name)}</b> · ` + st.parts.map(p=>`${SECTORS[p.sec].name} : ${p.ranges.map(r=>`${side(r)} ${fmt(r)}`).join(", ")}`).join(" · ");
+}
+function judge(st,num,label){
+  showRanges(st);
+  if(!st){ show("no","✗ Pas dans tes secteurs",`${esc(label||"Cette rue")} n'est pas couverte par ta carte riverain.`); return; }
+  if(num==null||isNaN(num)){ show("warn","Rue dans tes secteurs",`${esc(st.name)} : numéro pas trouvé. Regarde le n° sur la façade et vérifie les tranches ci-dessous.`); return; }
+  const hit=st.parts.filter(p=>p.ranges.some(r=>covers(r,num)));
+  if(hit.length) show("ok","✓ Tu peux te garer",`${esc(st.name)} ${num} · secteur ${hit.map(p=>SECTORS[p.sec].name).join(" + ")}`);
+  else show("no","✗ Pas couvert ici",`${esc(st.name)} ${num} est hors de tes tranches. Change de côté ou de bout de rue.`);
+}
+
+let pin=null, lastGeo=0;
+async function checkPoint(lat,lng,fromGps){
+  if(!fromGps){ if(pin) pin.setLatLng([lat,lng]); else pin=L.marker([lat,lng]).addTo(map); }
+  show("info","Je vérifie…","Recherche de l'adresse la plus proche.");
+  let road=null, num=null;
+  try{
+    const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=fr`);
+    const j=await r.json(); road=j.address&&(j.address.road||j.address.pedestrian); num=j.address&&j.address.house_number?parseInt(j.address.house_number,10):null;
+  }catch(e){}
+  let st=findStreet(road);
+  if(!st && !road){ st=nearestStreet(lat,lng); }
+  judge(st,num,road);
+}
+
+// ---- GPS ----
+let me=null, acc=null, watching=false, lastCheck=null;
+document.getElementById("locate").addEventListener("click",()=>{
+  if(!("geolocation" in navigator)){show("warn","GPS indisponible","Ton navigateur ne donne pas la position.");return;}
+  show("info","Localisation…","Autorise la position si Chrome te le demande.");
+  if(pin){map.removeLayer(pin);pin=null;}
+  if(watching){ if(me) {map.setView(me.getLatLng(),18); checkPoint(me.getLatLng().lat,me.getLatLng().lng,true);} return; }
+  watching=true;
+  navigator.geolocation.watchPosition(p=>{
+    const ll=[p.coords.latitude,p.coords.longitude];
+    if(!me){ me=L.circleMarker(ll,{radius:8,color:"#fff",weight:3,fillColor:"#1a73e8",fillOpacity:1}).addTo(map); acc=L.circle(ll,{radius:p.coords.accuracy,color:"#1a73e8",weight:1,fillOpacity:.1}).addTo(map); map.setView(ll,18); }
+    else { me.setLatLng(ll); acc.setLatLng(ll).setRadius(p.coords.accuracy); }
+    const moved = !lastCheck || map.distance(lastCheck,ll)>15;
+    if(moved && Date.now()-lastGeo>2500){ lastGeo=Date.now(); lastCheck=ll; checkPoint(ll[0],ll[1],true); }
+  },err=>{ watching=false; show("warn","Position refusée","Autorise la localisation pour ce site dans Chrome (icône à gauche de l'adresse), puis réessaie."); },
+  {enableHighAccuracy:true,maximumAge:5000,timeout:20000});
+});
+map.on("click",e=>checkPoint(e.latlng.lat,e.latlng.lng,false));
+
+// ---- manual ----
+const man=document.getElementById("manual");
+document.getElementById("toggleManual").addEventListener("click",()=>{man.hidden=!man.hidden; if(!man.hidden) document.getElementById("street").focus();});
+document.getElementById("streets").innerHTML=Object.values(STREETS).sort((a,b)=>a.key.localeCompare(b.key)).map(s=>`<option value="${esc(s.name)}">`).join("");
+function manualCheck(){
+  const sv=document.getElementById("street").value.trim(); if(!sv) return;
+  let st=findStreet(sv);
+  if(!st){ const w=norm(sv); st=Object.values(STREETS).find(s=>s.key.includes(w))||null; }
+  const n=parseInt(document.getElementById("num").value,10);
+  judge(st,isNaN(n)?null:n,sv);
+  if(st){ const l=lines.find(l=>l.st===st); if(l) map.fitBounds(L.latLngBounds(l.g),{maxZoom:17}); }
+}
+document.getElementById("street").addEventListener("change",manualCheck);
+document.getElementById("num").addEventListener("input",manualCheck);
+
+// ---- expiry ----
+(function(){
+  const days=Math.ceil((new Date(2026,10,11,23,59,59)-new Date())/86400000), el=document.getElementById("expiry");
+  if(days<0){el.className="expiry no";el.textContent="⚠️ Carte expirée depuis le 11/11/2026 : renouvelle-la avant de te garer.";}
+  else if(days<=30){el.className="expiry warn";el.textContent=`⚠️ Ta carte expire dans ${days} jour${days>1?"s":""} (11/11/2026). Renouvellement à faire toi-même.`;}
+  else{el.className="expiry ok";el.textContent="Carte valable jusqu'au 11/11/2026.";}
+})();
+
+loadGeometry();
+if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
+</script>
+</body>
+</html>

@@ -124,18 +124,18 @@ for a in addrs:
     q2 = line.interpolate(min(line.length, s + 1.0))
     cross = (q2.x - q1.x) * (p.y - q1.y) - (q2.y - q1.y) * (p.x - q1.x)
     side = 1 if cross > 0 else -1
-    per_side[(key, i, side)].append((s, covered(key, n), n))
+    per_side[(key, i, side)].append((s, covered(key, n), n, round(c["lat"], 6), round(c["lon"], 6)))
 
 stats = defaultdict(lambda: [0, 0])
 for (key, i, side), pts in per_side.items():
     line = cways[key][i]
     pts.sort()
-    odd = sum(1 for _, _, n in pts if n % 2) * 2 >= len(pts)
+    odd = sum(1 for p in pts if p[2] % 2) * 2 >= len(pts)
     # build [start, end, status] pieces along the line, split halfway between differing addresses
     pieces = []
     start = 0.0 if pts[0][0] <= EXTEND else pts[0][0] - EXTEND
     cur = pts[0][1]
-    for (s1, st1, _), (s2, st2, _) in zip(pts, pts[1:]):
+    for (s1, st1, *_), (s2, st2, *_) in zip(pts, pts[1:]):
         if st2 != cur:
             mid = (s1 + s2) / 2
             pieces.append([start, mid, cur])
@@ -151,8 +151,10 @@ for (key, i, side), pts in per_side.items():
         off = seg.offset_curve(side * OFFSET)
         if off.is_empty or off.geom_type != "LineString":
             continue
+        # house numbers along this piece, so the app can say "n° 21"
+        nums = sorted({(p[3], p[4], p[2]) for p in pts if a - 1 <= p[0] <= b + 1})
         features.append({"t": 1 if st else 0, "n": STREETS[key]["name"], "p": "impairs" if odd else "pairs",
-                         "c": ll_coords(off.simplify(0.8))})
+                         "c": ll_coords(off.simplify(0.8)), "a": [list(x) for x in nums]})
         stats[STREETS[key]["name"]][0 if st else 1] += round(b - a)
 
 for name in sorted(s["name"] for s in STREETS.values()):
@@ -160,5 +162,6 @@ for name in sorted(s["name"] for s in STREETS.values()):
     flag = "" if ok else "   <-- NO COVERED SIDE FOUND"
     print(f"{name:40s} covered {ok:5d} m   not {no:5d} m{flag}")
 
-json.dump({"built": time.strftime("%Y-%m-%d"), "f": features}, open("zone.json", "w"), separators=(",", ":"))
+ranges = {v["name"]: sorted(v["ranges"]) for v in STREETS.values()}
+json.dump({"built": time.strftime("%Y-%m-%d"), "s": ranges, "f": features}, open("zone.json", "w"), separators=(",", ":"))
 print(f"{len(features)} features written")

@@ -94,7 +94,7 @@ const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 const map = L.map("map",{zoomControl:false,preferCanvas:true}).setView([50.8805,4.3250],16);
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
 const GREEN="#0f9d58", RED="#e53935";
-let FEAT=[], ready=false, pending=null, lastKind=null;
+let FEAT=[], RANGES={}, ready=false, pending=null, lastKind=null;
 
 // ---- spatial index: every line segment in local metres, bucketed in a 40 m grid ----
 // A check then only looks at the few segments in the 3x3 cells around the point: O(1), well under 1 ms.
@@ -144,7 +144,7 @@ async function loadZone(){
   throw new Error("zone");
 }
 loadZone().then(z=>{
-  FEAT=z.f; buildIndex();
+  FEAT=z.f; RANGES=z.s||{}; buildIndex();
   // one canvas, red first so green always sits on top
   for(const f of FEAT) if(!f.t) L.polyline(f.c,{color:RED,weight:3,opacity:.55,interactive:false}).addTo(map);
   for(const f of FEAT) if(f.t)  L.polyline(f.c,{color:GREEN,weight:6,opacity:.95,lineCap:"round",interactive:false}).addTo(map);
@@ -160,15 +160,32 @@ function show(kind,icon,title,sub,busy){
   if(!busy && kind!==lastKind && (kind==="ok"||kind==="no") && navigator.vibrate) navigator.vibrate(kind==="ok"?30:[40,60,40]);
   if(!busy) lastKind=kind;
 }
-const sideTxt=f=>f.p?` (côté ${f.p})`:"";
+// nearest known house number on this side of the street (within ~45 m)
+function houseNumber(f,lat,lng){
+  if(!f.a||!f.a.length) return null;
+  const px=toX(lng), py=toY(lat); let best=null,bd=45;
+  for(const [la,lo,n] of f.a){ const d=Math.hypot(toX(lo)-px,toY(la)-py); if(d<bd){bd=d;best=n;} }
+  return best;
+}
+// "impairs du 7 au 61" for the side you are on
+function coverage(name,odd){
+  const r=(RANGES[name]||[]).filter(x=>(x[0]%2===1)===odd);
+  const word=odd?"impairs":"pairs";
+  if(!r.length) return `Aucun n° ${word} couvert dans cette rue`;
+  return `Ta carte : n° ${word} `+r.map(x=>x[0]===x[1]?`${x[0]}`:`du ${x[0]} au ${x[1]}`).join(" et ");
+}
 // the answer is read from the very lines drawn on the map, so map and answer always agree
 function check(lat,lng){
   if(!ready){ pending={lat,lng}; show("idle","P","Chargement…","Préparation de la carte",true); return; }
   const n=nearest(lat,lng), g=nearestGreen(lat,lng);
   const hintGreen = g ? `Rue verte la plus proche : ${esc(g.f.n)}, à ${Math.round(g.d)} m` : "";
   if(!n){ show("warn","?","Pas de rue ici", hintGreen || "Rapproche-toi d'une rue."); return; }
-  if(n.f.t) show("ok","✓","Tu peux te garer",`${esc(n.f.n)}${sideTxt(n.f)}`);
-  else show("no","✕","Pas ici",`${esc(n.f.n)}${sideTxt(n.f)}${hintGreen?"<br>"+hintGreen:""}`);
+  const f=n.f, num=houseNumber(f,lat,lng);
+  const odd = num!=null ? num%2===1 : f.p==="impairs";
+  const where = esc(f.n) + (num!=null ? ` <b>${num}</b>` : (f.p?` (côté ${f.p})`:""));
+  const known = RANGES[f.n];   // only your card's streets have ranges
+  if(f.t) show("ok","✓","Tu peux te garer",`${where}<br>${coverage(f.n,odd)}`);
+  else show("no","✕","Pas ici",`${where}${known?"<br>"+coverage(f.n,odd):""}${hintGreen?"<br>"+hintGreen:""}`);
 }
 
 // ---------- location ----------

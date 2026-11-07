@@ -172,7 +172,7 @@ def no_address_status(key, odd, line=None, a=0.0, b=0.0, pts=(), where=None):
         cand = [(mid.distance(p), c) for p, n, c in street_addrs.get(key, []) if (n % 2 == 1) == odd]
         if cand:
             d, c = min(cand, key=lambda t: t[0])
-            if d <= 60:
+            if d <= 100:
                 return int(c)
     return 2
 
@@ -208,6 +208,16 @@ for key, lines in cways.items():
             pts = per_side.get((key, i, side))
             if pts:
                 side_odd[side] = sum(1 for p in pts if p[2] % 2) * 2 >= len(pts)
+        if not side_odd:
+            # no house number along this way at all: borrow the parity of the nearest address of the street
+            near = [(line.distance(p), p, n) for p, n, c in street_addrs.get(key, [])]
+            if near:
+                d, p0, n0 = min(near, key=lambda t: t[0])
+                if d <= 80:
+                    s0 = line.project(p0)
+                    q1 = line.interpolate(max(0.0, s0 - 1.0)); q2 = line.interpolate(min(line.length, s0 + 1.0))
+                    cr = (q2.x - q1.x) * (p0.y - q1.y) - (q2.y - q1.y) * (p0.x - q1.x)
+                    side_odd[1 if cr > 0 else -1] = n0 % 2 == 1
         for side in (1, -1):
             pts = sorted(per_side.get((key, i, side), []))
             # parity of this side: its own numbers, else the opposite of the other side

@@ -191,7 +191,7 @@ for f in places:
         if in_card != in_poly:
             disagree.append((name, num, in_card, in_poly))
     elif key in CARD:
-        in_card = in_poly  # card street but no house number found: trust the official sector shape
+        in_card = None  # card street but no house number found: cannot decide from the PDF
     else:
         in_card = False
 
@@ -203,6 +203,8 @@ for f in places:
         st, why = 0, "Zone rouge : carte non valable"
     elif typreg == 2:
         st, why = 0, "Zone orange : carte non valable"
+    elif in_card is None:
+        st, why = 2, "Numéro introuvable : vérifie sur place"
     elif in_card:
         st, why = 1, "Dans ton secteur"
     elif key in CARD:
@@ -213,12 +215,12 @@ for f in places:
     for q in pts:
         lon, lat = to_ll(q.x, q.y)
         out.append({"y": round(lat, 6), "x": round(lon, 6), "t": st, "r": why, "n": name or "", "h": num,
-                    "z": TYPREG.get(typreg, ""), "s": p.get("si_id")})
+                    "s": p.get("si_id"), "X": q.x, "Y": q.y})
 
 # ---------- checks (the build fails instead of publishing something wrong) ----------
 print("\nverdicts:")
 for (st, why), c in sorted(stats.items(), key=lambda t: -t[1]):
-    print(f"  {'OUI' if st else 'non'}  {why:35s} {c}")
+    print(f"  {['non', 'OUI', '???'][st]}  {why:40s} {c}")
 print(f"\nPDF ranges vs official sector shape: {len(disagree)} disagreements")
 by = defaultdict(list)
 for n, num, a, b in disagree:
@@ -242,13 +244,36 @@ print("\nchecks:", checks)
 if not all(checks.values()):
     sys.exit("checks failed: places.json not updated")
 
-# sector outline for the map (light context)
-outline = []
-for poly in (sector_geom.geoms if sector_geom.geom_type == "MultiPolygon" else [sector_geom]):
-    ring = poly.exterior.simplify(4)
-    outline.append([[round(c, 6) for c in to_ll(x, y)[::-1]] for x, y in ring.coords])
+# ---------- compact output ----------
+# kerb lines: places of the same street side, in order, joined while they share a verdict
+groups = defaultdict(list)
+for o in out:
+    groups[o["s"]].append(o)
+lines = []
+for gid, g in groups.items():
+    if len(g) > 1:
+        mx = sum(o["X"] for o in g) / len(g); my = sum(o["Y"] for o in g) / len(g)
+        sxx = sum((o["X"] - mx) ** 2 for o in g); syy = sum((o["Y"] - my) ** 2 for o in g)
+        sxy = sum((o["X"] - mx) * (o["Y"] - my) for o in g)
+        import math
+        ang = 0.5 * math.atan2(2 * sxy, sxx - syy)
+        ux, uy = math.cos(ang), math.sin(ang)
+        g.sort(key=lambda o: (o["X"] - mx) * ux + (o["Y"] - my) * uy)
+    run = [g[0]]
+    for a, b in zip(g, g[1:]):
+        if b["t"] == run[-1]["t"] and math.hypot(b["X"] - a["X"], b["Y"] - a["Y"]) <= 14:
+            run.append(b)
+        else:
+            lines.append(run); run = [b]
+    lines.append(run)
+
+R, N = [], []
+ri = lambda r: R.index(r) if r in R else (R.append(r) or len(R) - 1)
+ni = lambda n: N.index(n) if n in N else (N.append(n) or len(N) - 1)
+P = [[o["y"], o["x"], o["t"], ri(o["r"]), ni(o["n"]), o["h"] if o["h"] is not None else -1] for o in out]
+Lc = [[run[0]["t"]] + [[o["y"], o["x"]] for o in run] for run in lines]
 
 json.dump({"built": time.strftime("%Y-%m-%d"), "ranges": {v["name"]: sorted(v["ranges"]) for v in CARD.values()},
-           "outline": outline, "p": out}, open("places.json", "w", encoding="utf-8"),
+           "R": R, "N": N, "P": P, "L": Lc}, open("places.json", "w", encoding="utf-8"),
           ensure_ascii=False, separators=(",", ":"))
-print(f"\nplaces.json: {len(out)} places")
+print(f"\nplaces.json: {len(P)} places, {len(Lc)} kerb lines")

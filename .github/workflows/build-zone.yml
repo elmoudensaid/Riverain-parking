@@ -1,7 +1,7 @@
 name: Build zone map
 on:
   push:
-    paths: ["tools/**", ".github/workflows/build-zone.yml"]
+    paths: ["tools/build_zone.py", "tools/streets.json", ".github/workflows/build-zone.yml"]
   workflow_dispatch:
 permissions:
   contents: write

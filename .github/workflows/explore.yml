@@ -1,0 +1,11 @@
+name: Explore open data
+on:
+  push:
+    paths: ["tools/explore.py", ".github/workflows/explore.yml"]
+  workflow_dispatch:
+jobs:
+  explore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python tools/explore.py $(cat tools/explore_args.txt 2>/dev/null)

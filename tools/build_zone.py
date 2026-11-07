@@ -114,53 +114,92 @@ for a in addrs:
     if c["lat"] is None:
         continue
     p = Point(to_m(c["lon"], c["lat"]))
-    i, line = min(enumerate(cways[key]), key=lambda t: t[1].distance(p))
-    if line.distance(p) > MAX_ADDR:
+    # attach to every way of the street that runs right past it (dual carriageways, split ways),
+    # or at least to the nearest one
+    dists = [(line.distance(p), i) for i, line in enumerate(cways[key])]
+    targets = [i for d, i in dists if d <= 30] or [min(dists)[1]]
+    if min(dists)[0] > MAX_ADDR:
         missing[key] += 1
         continue
-    s = line.project(p)
-    # which side of the street the address is on
-    q1 = line.interpolate(max(0.0, s - 1.0))
-    q2 = line.interpolate(min(line.length, s + 1.0))
-    cross = (q2.x - q1.x) * (p.y - q1.y) - (q2.y - q1.y) * (p.x - q1.x)
-    side = 1 if cross > 0 else -1
-    per_side[(key, i, side)].append((s, covered(key, n), n, round(c["lat"], 6), round(c["lon"], 6)))
+    for i in targets:
+        line = cways[key][i]
+        s = line.project(p)
+        # which side of the street the address is on
+        q1 = line.interpolate(max(0.0, s - 1.0))
+        q2 = line.interpolate(min(line.length, s + 1.0))
+        cross = (q2.x - q1.x) * (p.y - q1.y) - (q2.y - q1.y) * (p.x - q1.x)
+        side = 1 if cross > 0 else -1
+        per_side[(key, i, side)].append((s, covered(key, n), n, round(c["lat"], 6), round(c["lon"], 6)))
 
+
+def no_address_status(key, odd):
+    """A stretch with no house number: if the card has no range at all for that side's parity,
+    it is certainly not covered (0); otherwise we cannot tell (2 = check on site)."""
+    if odd is None:
+        return 2
+    return 2 if any((a % 2 == 1) == odd for a, b in STREETS[key]["ranges"]) else 0
+
+
+unknown_m = defaultdict(int)
 stats = defaultdict(lambda: [0, 0])
-for (key, i, side), pts in per_side.items():
-    line = cways[key][i]
-    pts.sort()
-    odd = sum(1 for p in pts if p[2] % 2) * 2 >= len(pts)
-    # build [start, end, status] pieces along the line, split halfway between differing addresses
-    pieces = []
-    start = 0.0 if pts[0][0] <= EXTEND else pts[0][0] - EXTEND
-    cur = pts[0][1]
-    for (s1, st1, *_), (s2, st2, *_) in zip(pts, pts[1:]):
-        if st2 != cur:
-            mid = (s1 + s2) / 2
-            pieces.append([start, mid, cur])
-            start, cur = mid, st2
-    end = line.length if line.length - pts[-1][0] <= EXTEND else pts[-1][0] + EXTEND
-    pieces.append([start, end, cur])
-    for a, b, st in pieces:
-        if b - a < 2:
-            continue
-        seg = substring(line, a, b)
-        if seg.length < 2:
-            continue
-        off = seg.offset_curve(side * OFFSET)
-        if off.is_empty or off.geom_type != "LineString":
-            continue
-        # house numbers along this piece, so the app can say "n° 21"
-        nums = sorted({(p[3], p[4], p[2]) for p in pts if a - 1 <= p[0] <= b + 1})
-        features.append({"t": 1 if st else 0, "n": STREETS[key]["name"], "p": "impairs" if odd else "pairs",
-                         "c": ll_coords(off.simplify(0.8)), "a": [list(x) for x in nums]})
+
+
+def emit(key, line, side, a, b, st, odd, pts):
+    if b - a < 2:
+        return
+    seg = substring(line, a, b)
+    if seg.length < 2:
+        return
+    off = seg.offset_curve(side * OFFSET)
+    if off.is_empty or off.geom_type != "LineString":
+        return
+    nums = sorted({(p[3], p[4], p[2]) for p in pts if a - 1 <= p[0] <= b + 1})
+    f = {"t": st, "n": STREETS[key]["name"], "c": ll_coords(off.simplify(0.8)), "a": [list(x) for x in nums]}
+    if odd is not None:
+        f["p"] = "impairs" if odd else "pairs"
+    features.append(f)
+    if st == 2:
+        unknown_m[STREETS[key]["name"]] += round(b - a)
+    else:
         stats[STREETS[key]["name"]][0 if st else 1] += round(b - a)
+
+
+for key, lines in cways.items():
+    for i, line in enumerate(lines):
+        side_odd = {}
+        for side in (1, -1):
+            pts = per_side.get((key, i, side))
+            if pts:
+                side_odd[side] = sum(1 for p in pts if p[2] % 2) * 2 >= len(pts)
+        for side in (1, -1):
+            pts = sorted(per_side.get((key, i, side), []))
+            # parity of this side: its own numbers, else the opposite of the other side
+            odd = side_odd.get(side, (not side_odd[-side]) if -side in side_odd else None)
+            if not pts:
+                emit(key, line, side, 0.0, line.length, no_address_status(key, odd), odd, [])
+                continue
+            # covered / not covered pieces, split halfway between differing addresses
+            pieces = []
+            start = 0.0 if pts[0][0] <= EXTEND else pts[0][0] - EXTEND
+            if start > 0:
+                pieces.append([0.0, start, no_address_status(key, odd)])
+            cur = int(pts[0][1])
+            for (s1, st1, *_), (s2, st2, *_) in zip(pts, pts[1:]):
+                if int(st2) != cur:
+                    mid = (s1 + s2) / 2
+                    pieces.append([start, mid, cur])
+                    start, cur = mid, int(st2)
+            end = line.length if line.length - pts[-1][0] <= EXTEND else pts[-1][0] + EXTEND
+            pieces.append([start, end, cur])
+            if end < line.length:
+                pieces.append([end, line.length, no_address_status(key, odd)])
+            for a, b, st in pieces:
+                emit(key, line, side, a, b, st, odd, pts)
 
 for name in sorted(s["name"] for s in STREETS.values()):
     ok, no = stats.get(name, [0, 0])
     flag = "" if ok else "   <-- NO COVERED SIDE FOUND"
-    print(f"{name:40s} covered {ok:5d} m   not {no:5d} m{flag}")
+    print(f"{name:40s} covered {ok:5d} m   not {no:5d} m   unknown {unknown_m.get(name, 0):5d} m{flag}")
 
 ranges = {v["name"]: sorted(v["ranges"]) for v in STREETS.values()}
 json.dump({"built": time.strftime("%Y-%m-%d"), "s": ranges, "f": features}, open("zone.json", "w"), separators=(",", ":"))

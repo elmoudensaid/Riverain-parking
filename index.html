@@ -109,7 +109,7 @@ function buildIndex(){
     const ax=SEG[k],ay=SEG[k+1],bx=SEG[k+2],by=SEG[k+3];
     const x0=Math.floor(Math.min(ax,bx)/CELL), x1=Math.floor(Math.max(ax,bx)/CELL), y0=Math.floor(Math.min(ay,by)/CELL), y1=Math.floor(Math.max(ay,by)/CELL);
     for(let x=x0;x<=x1;x++) for(let y=y0;y<=y1;y++){ const key=x*100000+y; let c=GRID.get(key); if(!c) GRID.set(key,c=[]); c.push(k); }
-    if(FEAT[SEG[k+4]].t) GREEN_SEG.push(k);
+    if(FEAT[SEG[k+4]].t===1) GREEN_SEG.push(k);
   }
 }
 function segDist(k,px,py){
@@ -146,8 +146,9 @@ async function loadZone(){
 loadZone().then(z=>{
   FEAT=z.f; RANGES=z.s||{}; buildIndex();
   // one canvas, red first so green always sits on top
-  for(const f of FEAT) if(!f.t) L.polyline(f.c,{color:RED,weight:3,opacity:.55,interactive:false}).addTo(map);
-  for(const f of FEAT) if(f.t)  L.polyline(f.c,{color:GREEN,weight:6,opacity:.95,lineCap:"round",interactive:false}).addTo(map);
+  for(const f of FEAT) if(f.t===0) L.polyline(f.c,{color:RED,weight:3,opacity:.55,interactive:false}).addTo(map);
+  for(const f of FEAT) if(f.t===2) L.polyline(f.c,{color:"#f2a900",weight:3,opacity:.9,dashArray:"4 6",interactive:false}).addTo(map);
+  for(const f of FEAT) if(f.t===1) L.polyline(f.c,{color:GREEN,weight:6,opacity:.95,lineCap:"round",interactive:false}).addTo(map);
   ready=true;
   if(pending){ const p=pending; pending=null; check(p.lat,p.lng); }
 }).catch(()=>show("warn","!","Carte indisponible","Pas de connexion pour charger les zones. Recharge la page."));
@@ -184,7 +185,8 @@ function check(lat,lng){
   const odd = num!=null ? num%2===1 : f.p==="impairs";
   const where = esc(f.n) + (num!=null ? ` <b>${num}</b>` : (f.p?` (côté ${f.p})`:""));
   const known = RANGES[f.n];   // only your card's streets have ranges
-  if(f.t) show("ok","✓","Tu peux te garer",`${where}<br>${coverage(f.n,odd)}`);
+  if(f.t===1) show("ok","✓","Tu peux te garer",`${where}<br>${coverage(f.n,odd)}`);
+  else if(f.t===2) show("warn","?","À vérifier sur place",`${where}<br>${coverage(f.n,odd)} : regarde le n° le plus proche.`);
   else show("no","✕","Pas ici",`${where}${known?"<br>"+coverage(f.n,odd):""}${hintGreen?"<br>"+hintGreen:""}`);
 }
 

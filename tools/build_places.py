@@ -63,7 +63,9 @@ def fetch(base, layer, props=None, extra=None, page=20000):
     out, start = [], 0
     while True:
         q = {"service": "WFS", "version": "2.0.0", "request": "GetFeature", "typeNames": layer,
-             "outputFormat": "application/json", "srsName": "EPSG:31370", "count": page, "startIndex": start}
+             "outputFormat": "application/json", "srsName": "EPSG:31370"}
+        if page:
+            q.update({"count": page, "startIndex": start})
         if props:
             q["propertyName"] = ",".join(props)
         if extra:
@@ -78,23 +80,29 @@ def fetch(base, layer, props=None, extra=None, page=20000):
                     feats = json.load(r)["features"]
                 break
             except Exception as e:
-                body = e.read().decode("utf-8", "replace")[:600] if hasattr(e, "read") else ""
+                body = e.read().decode("utf-8", "replace") if hasattr(e, "read") else ""
+                body = " | ".join(re.findall(r"<ows:ExceptionText>(.*?)</ows:ExceptionText>", body, re.S))[:600]
                 print("retry", layer, e, body, file=sys.stderr)
                 time.sleep(15)
         else:
             sys.exit(f"cannot download {layer}")
         out += feats
-        if len(feats) < page:
+        if not page or len(feats) < page:
             return out
         start += page
 
 
 t0 = time.time()
-places = fetch(PB, "ParkingBrussels:on_street")
+# parking.brussels refuses bbox/paging on this layer: ask for the municipalities around Jette instead
+places = fetch(PB, "ParkingBrussels:on_street", page=None,
+               extra={"CQL_FILTER": "muniscode IN ('21010','21004','21008','21011','21012')"})
+_box = (x0, y0, x1, y1)
+places = [f for f in places if f.get("geometry") and _box[0] <= shape(f["geometry"]).centroid.x <= _box[2]
+          and _box[1] <= shape(f["geometry"]).centroid.y <= _box[3]]
 addrs = fetch(URBIS, "urbisvector:AddressNumbers")
 axes = fetch(URBIS, "urbisvector:StreetAxes")
-sectors = fetch(PB, "ParkingBrussels:permit_secteurs_mailles", extra={"CQL_FILTER": "zonecode IN (%s)" % ",".join(f"'{c}'" for c in CARD_SECTORS)})
-borders = fetch(PB, "ParkingBrussels:permit_limitrophes", extra={"CQL_FILTER": "zonecode IN (%s)" % ",".join(f"'{c}'" for c in CARD_BORDER)})
+sectors = fetch(PB, "ParkingBrussels:permit_secteurs_mailles", page=None, extra={"CQL_FILTER": "zonecode IN (%s)" % ",".join(f"'{c}'" for c in CARD_SECTORS)})
+borders = fetch(PB, "ParkingBrussels:permit_limitrophes", page=None, extra={"CQL_FILTER": "zonecode IN (%s)" % ",".join(f"'{c}'" for c in CARD_BORDER)})
 print(f"downloaded: {len(places)} places, {len(addrs)} address rows, {len(axes)} axes, "
       f"{len(sectors)} sectors, {len(borders)} border zones in {time.time() - t0:.0f}s")
 

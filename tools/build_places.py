@@ -78,7 +78,8 @@ def fetch(base, layer, props=None, extra=None, page=20000):
                     feats = json.load(r)["features"]
                 break
             except Exception as e:
-                print("retry", layer, e, file=sys.stderr)
+                body = e.read().decode("utf-8", "replace")[:600] if hasattr(e, "read") else ""
+                print("retry", layer, e, body, file=sys.stderr)
                 time.sleep(15)
         else:
             sys.exit(f"cannot download {layer}")

@@ -98,6 +98,7 @@ for w in ways:
         name = (tags.get("name:fr") or tags["name"]).split(" - ")[0]
         features.append({"t": 0, "n": name, "c": ll_coords(proj_line(w["geometry"]).simplify(1.0))})
 
+street_addrs = defaultdict(list)
 # attach every address of a covered street to its nearest way of that street
 per_side = defaultdict(list)  # (key, way index, side) -> [(s, status, number)]
 missing = defaultdict(int)
@@ -121,6 +122,7 @@ for a in addrs:
     if min(dists)[0] > MAX_ADDR:
         missing[key] += 1
         continue
+    street_addrs[key].append((p, n, covered(key, n)))
     for i in targets:
         line = cways[key][i]
         s = line.project(p)
@@ -132,12 +134,47 @@ for a in addrs:
         per_side[(key, i, side)].append((s, covered(key, n), n, round(c["lat"], 6), round(c["lon"], 6)))
 
 
-def no_address_status(key, odd):
-    """A stretch with no house number: if the card has no range at all for that side's parity,
-    it is certainly not covered (0); otherwise we cannot tell (2 = check on site)."""
+def parity_numbers_covered(key, odd, lo, hi):
+    """Status of every house number of this parity in [lo, hi]: 1 all covered, 0 none, None mixed."""
+    rs = [(a, b) for a, b in STREETS[key]["ranges"] if (a % 2 == 1) == odd]
+    if not rs:
+        return 0
+    hit = [r for r in rs if r[1] >= lo and r[0] <= hi]
+    if not hit:
+        return 0
+    first = lo if lo % 2 == (1 if odd else 0) else lo + 1
+    if hi < 10**6 and all(any(a <= n <= b for a, b in rs) for n in range(first, hi + 1, 2)):
+        return 1
+    return None
+
+
+def no_address_status(key, odd, line=None, a=0.0, b=0.0, pts=(), where=None):
+    """Status of a stretch with no house number of its own.
+    1) the card has no range for this side's parity -> not covered;
+    2) numbers keep rising/falling past the last known address -> deduce from the range;
+    3) nearest address of the same parity on this street (<= 60 m) -> same status;
+    4) otherwise unknown (2 = check on site)."""
     if odd is None:
         return 2
-    return 2 if any((a % 2 == 1) == odd for a, b in STREETS[key]["ranges"]) else 0
+    if not any((r[0] % 2 == 1) == odd for r in STREETS[key]["ranges"]):
+        return 0
+    same = [p for p in pts if (p[2] % 2 == 1) == odd]
+    if len(same) >= 2 and where in ("start", "end"):
+        rising = same[-1][2] > same[0][2]
+        edge = same[0][2] if where == "start" else same[-1][2]
+        going_up = rising if where == "end" else not rising
+        lo, hi = (edge + 1, 10**7) if going_up else (1, edge - 1)
+        st = parity_numbers_covered(key, odd, lo, hi)
+        if st is not None:
+            return st
+    if line is not None:
+        mid = line.interpolate((a + b) / 2)
+        cand = [(mid.distance(p), c) for p, n, c in street_addrs.get(key, []) if (n % 2 == 1) == odd]
+        if cand:
+            d, c = min(cand, key=lambda t: t[0])
+            if d <= 60:
+                return int(c)
+    return 2
 
 
 unknown_m = defaultdict(int)
@@ -176,13 +213,13 @@ for key, lines in cways.items():
             # parity of this side: its own numbers, else the opposite of the other side
             odd = side_odd.get(side, (not side_odd[-side]) if -side in side_odd else None)
             if not pts:
-                emit(key, line, side, 0.0, line.length, no_address_status(key, odd), odd, [])
+                emit(key, line, side, 0.0, line.length, no_address_status(key, odd, line, 0.0, line.length), odd, [])
                 continue
             # covered / not covered pieces, split halfway between differing addresses
             pieces = []
             start = 0.0 if pts[0][0] <= EXTEND else pts[0][0] - EXTEND
             if start > 0:
-                pieces.append([0.0, start, no_address_status(key, odd)])
+                pieces.append([0.0, start, no_address_status(key, odd, line, 0.0, start, pts, "start")])
             cur = int(pts[0][1])
             for (s1, st1, *_), (s2, st2, *_) in zip(pts, pts[1:]):
                 if int(st2) != cur:
@@ -192,7 +229,7 @@ for key, lines in cways.items():
             end = line.length if line.length - pts[-1][0] <= EXTEND else pts[-1][0] + EXTEND
             pieces.append([start, end, cur])
             if end < line.length:
-                pieces.append([end, line.length, no_address_status(key, odd)])
+                pieces.append([end, line.length, no_address_status(key, odd, line, end, line.length, pts, "end")])
             for a, b, st in pieces:
                 emit(key, line, side, a, b, st, odd, pts)
 

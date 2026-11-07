@@ -201,6 +201,21 @@ def emit(key, line, side, a, b, st, odd, pts):
         stats[STREETS[key]["name"]][0 if st else 1] += round(b - a)
 
 
+def faces_twin(key, i, line, side):
+    """True when this side of the way looks at another carriageway of the same street (a median)."""
+    hits = 0
+    for f in (0.25, 0.5, 0.75):
+        s0 = line.length * f
+        q1 = line.interpolate(max(0.0, s0 - 1.0)); q2 = line.interpolate(min(line.length, s0 + 1.0))
+        dx, dy = q2.x - q1.x, q2.y - q1.y
+        L = (dx * dx + dy * dy) ** 0.5 or 1.0
+        nx, ny = -dy / L * side, dx / L * side  # unit normal pointing to this side
+        probe = Point(line.interpolate(s0).x + nx * 12, line.interpolate(s0).y + ny * 12)
+        if any(j != i and other.distance(probe) <= 12 for j, other in enumerate(cways[key])):
+            hits += 1
+    return hits >= 2
+
+
 for key, lines in cways.items():
     for i, line in enumerate(lines):
         side_odd = {}
@@ -222,6 +237,8 @@ for key, lines in cways.items():
             pts = sorted(per_side.get((key, i, side), []))
             # parity of this side: its own numbers, else the opposite of the other side
             odd = side_odd.get(side, (not side_odd[-side]) if -side in side_odd else None)
+            if not pts and faces_twin(key, i, line, side):
+                continue  # inner edge of a dual carriageway (tram / central reservation): no kerb parking
             if not pts:
                 emit(key, line, side, 0.0, line.length, no_address_status(key, odd, line, 0.0, line.length), odd, [])
                 continue

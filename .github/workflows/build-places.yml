@@ -2,8 +2,6 @@ name: Build official parking places
 on:
   push:
     paths: ["tools/build_places.py", "tools/streets.json", ".github/workflows/build-places.yml"]
-  schedule:
-    - cron: "17 4 3 * *"   # every month: follow new places and rule changes
   workflow_dispatch:
 permissions:
   contents: write

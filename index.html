@@ -117,57 +117,79 @@ const GREEN="#0f9d58", RED="#e53935", AMBER="#f2a900";
 
 // ---------- map ----------
 const map = L.map("map",{zoomControl:false,preferCanvas:true}).setView([50.8805,4.3250],16);
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap · places : parking.brussels · adresses : UrbIS"}).addTo(map);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap · UrbIS · parking.brussels"}).addTo(map);
 
-// ---------- data + spatial index (local metres, 25 m grid) ----------
-const LAT0=50.88, LNG0=4.32, KX=Math.cos(LAT0*Math.PI/180)*111320, KY=110540, CELL=25;
+// ---------- data + spatial index: kerb segments in local metres, 30 m grid ----------
+const LAT0=50.88, LNG0=4.32, KX=Math.cos(LAT0*Math.PI/180)*111320, KY=110540, CELL=30, NEAR=30;
 const toX=lng=>(lng-LNG0)*KX, toY=lat=>(lat-LAT0)*KY;
-let D=null, PX=null, PY=null, GRID=new Map(), GREENS=[], ready=false, pending=null;
-
+let D=null, SEG=null, GRID=new Map(), GREEN_SEG=[], RX=null, RY=null, RGRID=new Map(), ready=false, pending=null;
+const cellKey=(x,y)=>x*100000+y;
 function buildIndex(){
-  const n=D.P.length; PX=new Float64Array(n); PY=new Float64Array(n);
-  for(let i=0;i<n;i++){
-    const p=D.P[i]; PX[i]=toX(p[1]); PY[i]=toY(p[0]);
-    const key=Math.floor(PX[i]/CELL)*100000+Math.floor(PY[i]/CELL);
-    let c=GRID.get(key); if(!c) GRID.set(key,c=[]); c.push(i);
-    if(p[2]===1) GREENS.push(i);
+  const tmp=[];
+  D.f.forEach((f,fi)=>{ for(let i=1;i<f.c.length;i++) tmp.push(toX(f.c[i-1][1]),toY(f.c[i-1][0]),toX(f.c[i][1]),toY(f.c[i][0]),fi); });
+  SEG=new Float64Array(tmp);
+  for(let k=0;k<SEG.length;k+=5){
+    const x0=Math.floor(Math.min(SEG[k],SEG[k+2])/CELL), x1=Math.floor(Math.max(SEG[k],SEG[k+2])/CELL);
+    const y0=Math.floor(Math.min(SEG[k+1],SEG[k+3])/CELL), y1=Math.floor(Math.max(SEG[k+1],SEG[k+3])/CELL);
+    for(let x=x0;x<=x1;x++) for(let y=y0;y<=y1;y++){ const key=cellKey(x,y); let c=GRID.get(key); if(!c) GRID.set(key,c=[]); c.push(k); }
+    if(D.f[SEG[k+4]].t===1) GREEN_SEG.push(k);
   }
+  const n=D.r.length; RX=new Float64Array(n); RY=new Float64Array(n);
+  for(let i=0;i<n;i++){ RX[i]=toX(D.r[i][1]); RY[i]=toY(D.r[i][0]); const key=cellKey(Math.floor(RX[i]/CELL),Math.floor(RY[i]/CELL)); let c=RGRID.get(key); if(!c) RGRID.set(key,c=[]); c.push(i); }
 }
-// nearest parking place within r metres (rings of grid cells, stops early)
-function nearestPlace(lat,lng,r){
-  const px=toX(lng), py=toY(lat), cx=Math.floor(px/CELL), cy=Math.floor(py/CELL), k=Math.ceil(r/CELL);
-  let bi=-1, bd=r;
-  for(let x=cx-k;x<=cx+k;x++) for(let y=cy-k;y<=cy+k;y++){
-    const c=GRID.get(x*100000+y); if(!c) continue;
-    for(const i of c){ const d=Math.hypot(PX[i]-px,PY[i]-py); if(d<bd){bd=d;bi=i;} }
-  }
-  return bi<0?null:{i:bi,d:bd};
+function segDist(k,px,py){
+  const ax=SEG[k]-px, ay=SEG[k+1]-py, dx=SEG[k+2]-SEG[k], dy=SEG[k+3]-SEG[k+1];
+  const t=Math.max(0,Math.min(1,-(ax*dx+ay*dy)/((dx*dx+dy*dy)||1)));
+  return Math.hypot(ax+t*dx,ay+t*dy);
+}
+function nearestKerb(lat,lng){
+  const px=toX(lng), py=toY(lat), cx=Math.floor(px/CELL), cy=Math.floor(py/CELL);
+  let bk=-1, bd=NEAR;
+  for(let x=cx-1;x<=cx+1;x++) for(let y=cy-1;y<=cy+1;y++){ const c=GRID.get(cellKey(x,y)); if(c) for(const k of c){ const d=segDist(k,px,py); if(d<bd){bd=d;bk=k;} } }
+  return bk<0?null:{f:D.f[SEG[bk+4]], d:bd};
 }
 function nearestGreen(lat,lng){
-  const px=toX(lng), py=toY(lat); let bi=-1, bd=Infinity;
-  for(const i of GREENS){ const d=Math.hypot(PX[i]-px,PY[i]-py); if(d<bd){bd=d;bi=i;} }
-  return bi<0?null:{i:bi,d:bd};
+  const px=toX(lng), py=toY(lat); let bk=-1, bd=Infinity;
+  for(const k of GREEN_SEG){ const d=segDist(k,px,py); if(d<bd){bd=d;bk=k;} }
+  return bk<0?null:{f:D.f[SEG[bk+4]], d:bd};
+}
+// a reserved place (PMR, delivery, moto...) right where you are
+function reservedHere(lat,lng){
+  const px=toX(lng), py=toY(lat), cx=Math.floor(px/CELL), cy=Math.floor(py/CELL); let bi=-1, bd=7;
+  for(let x=cx-1;x<=cx+1;x++) for(let y=cy-1;y<=cy+1;y++){ const c=RGRID.get(cellKey(x,y)); if(c) for(const i of c){ const d=Math.hypot(RX[i]-px,RY[i]-py); if(d<bd){bd=d;bi=i;} } }
+  return bi<0?null:D.R[D.r[bi][2]];
+}
+// nearest official house number on this side of the street
+function houseNumber(f,lat,lng){
+  if(!f.a||!f.a.length) return null;
+  const px=toX(lng), py=toY(lat); let best=null, bd=45;
+  for(const [la,lo,n] of f.a){ const d=Math.hypot(toX(lo)-px,toY(la)-py); if(d<bd){bd=d;best=n;} }
+  return best;
 }
 
 async function loadData(){
   for(let attempt=0;attempt<3;attempt++){
     const ctl=new AbortController(), t=setTimeout(()=>ctl.abort(),15000);
-    try{ const r=await fetch("places.json",{signal:ctl.signal}); clearTimeout(t); if(r.ok) return await r.json(); }
+    try{ const r=await fetch("map.json",{signal:ctl.signal}); clearTimeout(t); if(r.ok) return await r.json(); }
     catch(e){ clearTimeout(t); }
     await new Promise(r=>setTimeout(r,1500));
   }
   throw new Error("data");
 }
+const reservedLayer=L.layerGroup();
 loadData().then(d=>{
   D=d; buildIndex();
-  // kerb lines: red first, then "check on site", green on top
-  const draw=(t,style)=>{ for(const l of D.L) if(l[0]===t){ const c=l.slice(1); if(c.length===1) L.circleMarker(c[0],{radius:style.weight/2+1,stroke:false,fillColor:style.color,fillOpacity:style.opacity,interactive:false}).addTo(map); else L.polyline(c,{...style,interactive:false,lineCap:"round"}).addTo(map); } };
-  draw(0,{color:RED,weight:3,opacity:.6});
-  draw(2,{color:AMBER,weight:4,opacity:.95,dashArray:"4 6"});
-  draw(1,{color:GREEN,weight:6,opacity:.95});
+  // continuous kerb lines: red first, then "check on site", green on top
+  for(const f of D.f) if(f.t===0) L.polyline(f.c,{color:RED,weight:3,opacity:.55,interactive:false}).addTo(map);
+  for(const f of D.f) if(f.t===2) L.polyline(f.c,{color:AMBER,weight:4,opacity:.95,dashArray:"4 6",interactive:false}).addTo(map);
+  for(const f of D.f) if(f.t===1) L.polyline(f.c,{color:GREEN,weight:6,opacity:.95,lineCap:"round",interactive:false}).addTo(map);
+  // reserved places only when zoomed in, as small neutral dots on top of the line
+  for(const [la,lo] of D.r) L.circleMarker([la,lo],{radius:4,color:"#ffffff",weight:1.5,fillColor:"#4a5468",fillOpacity:1,interactive:false}).addTo(reservedLayer);
+  const sync=()=>{ if(map.getZoom()>=18) reservedLayer.addTo(map); else reservedLayer.remove(); };
+  map.on("zoomend",sync); sync();
   ready=true;
   if(pending){ const p=pending; pending=null; check(p.lat,p.lng,p.r); }
-}).catch(()=>show("warn","!","Carte indisponible","Pas de connexion pour charger les places. Recharge la page."));
+}).catch(()=>show("warn","!","Carte indisponible","Pas de connexion pour charger la carte. Recharge la page."));
 
 // ---------- verdict ----------
 const V=document.getElementById("verdict"), startBtn=document.getElementById("start"), backBtn=document.getElementById("back"), fab=document.getElementById("fab");
@@ -179,22 +201,27 @@ function show(kind,icon,title,sub,busy){
   if(!busy) lastKind=kind;
 }
 function coverage(name,odd){
-  const r=(D.ranges[name]||[]).filter(x=>(x[0]%2===1)===odd);
+  const r=(D.s[name]||[]).filter(x=>(x[0]%2===1)===odd);
   const w=odd?"impairs":"pairs";
   if(!r.length) return `ta carte ne couvre aucun n° ${w} ici`;
   return `ta carte : n° ${w} `+r.map(x=>x[0]===x[1]?`${x[0]}`:`du ${x[0]} au ${x[1]}`).join(" et ");
 }
 function check(lat,lng,radius){
   if(!ready){ pending={lat,lng,r:radius}; show("idle","P","Chargement…","Préparation de la carte",true); return; }
-  const n=nearestPlace(lat,lng,radius||22), g=nearestGreen(lat,lng);
-  const greenTxt = g ? `Place verte la plus proche à ${Math.round(g.d)} m` + (D.N[D.P[g.i][4]]?` (${esc(D.N[D.P[g.i][4]])})`:"") : "";
-  if(!n){ show("warn","?","Pas de place ici", greenTxt || "Aucune place de stationnement recensée à cet endroit."); return; }
-  const [ , , t, ri, ni, h]=D.P[n.i], name=D.N[ni], why=D.R[ri];
-  const where = name ? esc(name)+(h>0?` <b>${h}</b>`:"") : "Cette place";
-  const rangeTxt = (h>0 && D.ranges[name]) ? "<br>"+coverage(name,h%2===1) : "";
-  if(t===1) show("ok","✓","Tu peux te garer",`${where}${rangeTxt}`);
-  else if(t===2) show("warn","?","À vérifier sur place",`${where}<br>${esc(why)}`);
-  else show("no","✕","Pas ici",`${where} · ${esc(why)}${greenTxt?"<br>"+greenTxt:""}`);
+  const k=nearestKerb(lat,lng), g=nearestGreen(lat,lng);
+  const greenTxt = g ? `Trait vert le plus proche à ${Math.round(g.d)} m (${esc(g.f.n)})` : "";
+  if(!k){ show("warn","?","Pas de rue ici", greenTxt || "Rapproche-toi d'une rue."); return; }
+  const f=k.f, num=houseNumber(f,lat,lng), known=D.s[f.n];
+  const odd = num!=null ? num%2===1 : f.p==="impairs";
+  const where = esc(f.n)+(num!=null?` <b>${num}</b>`:(f.p?` (côté ${f.p})`:""));
+  const cov = known && (num!=null || f.p) ? "<br>"+coverage(f.n,odd) : "";
+  const res = reservedHere(lat,lng);
+  if(f.t===1){
+    if(res) show("ok","✓","Tu peux te garer dans cette rue",`${where}<br>⚠️ Juste ici : ${esc(res.toLowerCase())}. Prends la place d'à côté.`);
+    else show("ok","✓","Tu peux te garer",`${where}${cov}`);
+  }
+  else if(f.t===2) show("warn","?","À vérifier sur place",`${where}${cov} : regarde le numéro le plus proche.`);
+  else show("no","✕","Pas ici",`${where}${f.z?"<br>"+esc(f.z):cov}${greenTxt?"<br>"+greenTxt:""}`);
 }
 
 // ---------- location ----------
@@ -207,7 +234,7 @@ function onPos(p){
   startBtn.hidden=true; fab.classList.add("on");
   if(pin) return;
   if(p.coords.accuracy>60){ show("warn","!","Position imprécise",`Précision ±${Math.round(p.coords.accuracy)} m. Avance un peu à découvert.`); return; }
-  if(!lastChecked || map.distance(lastChecked,ll)>4){ lastChecked=ll; check(ll.lat,ll.lng,22); }
+  if(!lastChecked || map.distance(lastChecked,ll)>4){ lastChecked=ll; check(ll.lat,ll.lng); }
 }
 function onErr(e){
   watchId=null; fab.classList.remove("on"); startBtn.hidden=false;
@@ -223,14 +250,14 @@ function setPin(ll){ if(pin) pin.setLatLng(ll); else pin=L.marker(ll).addTo(map)
 function backToMe(){
   if(pin){ map.removeLayer(pin); pin=null; }
   backBtn.hidden=true; follow=true; lastKind=null;
-  if(lastPos){ map.setView(lastPos,18); lastChecked=lastPos; check(lastPos.lat,lastPos.lng,22); }
+  if(lastPos){ map.setView(lastPos,18); lastChecked=lastPos; check(lastPos.lat,lastPos.lng); }
   else startWatch();
 }
 startBtn.addEventListener("click",startWatch);
 fab.addEventListener("click",()=>{ if(watchId===null) startWatch(); else backToMe(); });
 backBtn.addEventListener("click",backToMe);
 map.on("dragstart",()=>{ follow=false; });
-map.on("click",e=>{ closeSugg(); setPin(e.latlng); check(e.latlng.lat,e.latlng.lng,22); });
+map.on("click",e=>{ closeSugg(); setPin(e.latlng); check(e.latlng.lat,e.latlng.lng); });
 
 // ---------- search with suggestions (Photon / OpenStreetMap, biased to Brussels) ----------
 const q=document.getElementById("q"), list=document.getElementById("sugg"), combo=document.getElementById("combo"), clearBtn=document.getElementById("clear");
@@ -268,7 +295,7 @@ function choose(i){
   q.value=l1; closeSugg(); q.blur();
   const ll=L.latLng(lat,lng); setPin(ll); map.setView(ll,18);
   // an address point sits on the building: look a bit further for its kerb
-  check(lat,lng,35);
+  check(lat,lng);
 }
 q.addEventListener("input",()=>{
   clearBtn.hidden=!q.value; clearTimeout(timer);

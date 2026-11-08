@@ -1,7 +1,7 @@
 // Network first for the app itself (always the latest version), cache as instant fallback offline.
 // Leaflet from the CDN never changes: cache first.
-const V="gj-v5";
-self.addEventListener("install",e=>{ self.skipWaiting(); e.waitUntil(caches.open(V).then(c=>c.addAll(["./","index.html","places.json","manifest.json"]).catch(()=>{}))); });
+const V="gj-v6";
+self.addEventListener("install",e=>{ self.skipWaiting(); e.waitUntil(caches.open(V).then(c=>c.addAll(["./","index.html","map.json","manifest.json"]).catch(()=>{}))); });
 self.addEventListener("activate",e=>{ e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==V).map(k=>caches.delete(k)))).then(()=>self.clients.claim())); });
 self.addEventListener("fetch",e=>{
   const req=e.request; if(req.method!=="GET") return;
